@@ -99,8 +99,7 @@
     (overlay-put ov 'evaporate t)
     (dolist (kv p)
       (apply #'overlay-put ov kv))
-    ;; higher is higher priority
-    (overlay-put ov 'priority 200)))
+    ov))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
@@ -626,6 +625,17 @@ If the list has exhausted, continuation is invalid."
                                   "#9aa6a5"
                                   "#929d9e"))
 
+(defconst +nop-ov-header-colors+ (vector "#edede2"
+                                         "#dfe5d8"
+                                         "#d2dccf"
+                                         "#c5d3c8"
+                                         "#b9cbc0"
+                                         "#aec2ba"
+                                         "#a4b9b3"
+                                         "#9ab0ac"
+                                         "#92a6a5"
+                                         "#8a9d9e"))
+
 (defconst +nop-ov-size+ (length +nop-ov-colors+))
 
 (defface nop-ov-base '((t :background "black" :extend t))
@@ -648,6 +658,13 @@ If the list has exhausted, continuation is invalid."
                                          ;; :foreground "maroon"
                                          :foreground "saddle brown")) "")))
 
+(defun nop-gen-ov-hm-face (depth inherit)
+  (let ((h-face-sym (intern (concat "nop-ov-hm-face-" (number-to-string depth)))))
+    (custom-declare-face h-face-sym `((t :inherit ,inherit
+                                         :overline t
+                                         :background ,(elt +nop-ov-header-colors+ depth)))
+                         "")))
+
 (defconst +nop-ov-faces+
   (cl-loop for i below +nop-ov-size+
            collect (nop-gen-ov-face i 'nop-ov-base)))
@@ -656,29 +673,52 @@ If the list has exhausted, continuation is invalid."
   (cl-loop for i below +nop-ov-size+
            collect (nop-gen-ov-h-face i (elt +nop-ov-faces+ i))))
 
-(setplist '+nop-overlay-invisible+ '(invisible t))
+(defconst +nop-ov-main-header-faces+
+  (cl-loop for i below +nop-ov-size+
+           collect (nop-gen-ov-hm-face i (elt +nop-ov-header-faces+ i))))
+
+(setplist '+nop-overlay-invisible+ '(invisible t priority 100))
 (defconst +nop-overlay-invisible+ '((category +nop-overlay-invisible+)))
 
 (defconst +nop-ov-margin-block-width+ 2)
 
 (defun nop-generate-margin-strings (max-depth depths)
   (cl-loop with size-m = (* (1+ max-depth) +nop-ov-margin-block-width+)
-           with margin-l = (concat (make-string size-m ?\s) (propertize " " 'face 'default))
-           with margin-r = (concat (make-string size-m ?\s) (propertize " " 'face 'default))
+           with margin-template = (concat (make-string size-m ?\s) (propertize " " 'face 'default))
+           ;; with margin-l = (copy-sequence margin-template)
+           with margin-r = (copy-sequence margin-template)
+           ;; with margin-lh = (copy-sequence margin-template)
+           with margin-rh = (copy-sequence margin-template)
            for last = (1+ max-depth) then curr
            for curr in depths
+
            for face = (elt +nop-ov-faces+ curr)
+           for hface = (elt +nop-ov-main-header-faces+ curr) then face
 
            for last-m = (* last +nop-ov-margin-block-width+)
            for curr-m = (* curr +nop-ov-margin-block-width+)
 
            do
-           (put-text-property curr-m last-m
-                              'face face margin-l)
+           ;; (put-text-property curr-m last-m
+           ;;                    'face face
+           ;;                    margin-l)
+           ;; (put-text-property curr-m last-m
+           ;;                    'face hface
+           ;;                    margin-lh)
            (put-text-property (- size-m last-m) (- size-m curr-m)
-                              'face face margin-r)
+                              'face face
+                              margin-r)
+           (put-text-property (- size-m last-m) (- size-m curr-m)
+                              'face hface
+                              margin-rh)
 
-           finally return (vector margin-l margin-r)))
+           finally return (vector
+                           (concat
+                            ;; (propertize "x" 'display `((margin left-margin) ,margin-l))
+                            (propertize "x" 'display `((margin right-margin) ,margin-r)))
+                           (concat
+                            ;; (propertize "x" 'display `((margin left-margin) ,margin-lh))
+                            (propertize "x" 'display `((margin right-margin) ,margin-rh))))))
 
 (defun nop-tree-overlay-p (ov)
   (eq '+nop-overlay-tree+
@@ -687,43 +727,40 @@ If the list has exhausted, continuation is invalid."
 (defun nop-toggle-subtree-visibility ()
   (interactive)
   (let* ((overlays (overlays-at (point) t))
-         (ov (cl-find-if 'nop-tree-overlay-p overlays)))
+         (ov (cl-find-if 'nop-tree-overlay-p overlays))
+         (head (overlay-get ov 'head))
+         (body (overlay-get ov 'body))
+         (directive (overlay-get head 'directive))
+         (state (overlay-get body 'invisible)))
+    (unless (eq :root (oref directive kind))
+      (overlay-put body 'invisible (not state))
+      (if state
+          (overlay-put body 'display nil)
+        ;; A blank line is required to maintain correct margins on collapse.
+        (overlay-put body 'display "...
+")
+        (goto-char (oref (oref directive positions) info))))
     (message "Overlay   : %s" ov)
-    (message "Directive : %s" (oref (overlay-get ov 'directive) description))))
+    (message "Directive : %s" (oref directive description))))
 
 (defconst +nop-box-map+ (define-keymap "<tab>" #'nop-toggle-subtree-visibility))
-(defun nop-get-end-node (d) (or (car (last (oref d continuations))) d))
 
-(defun nop-generate-tree-overlays (d max-depth depth-list)
-  (with-slots (depth kind positions) d
-    (let* ((m-face (elt +nop-ov-faces+ depth))
-           (h-face (elt +nop-ov-header-faces+ depth)))
+(defun nop-get-end-node (d)
+  (let* ((last-top-level (or (car (last (oref d continuations))) d))
+         (last-child-node
+          (cl-find-if #'nop-tree-directive-p
+                      (oref last-top-level children)
+                      :from-end t)))
+    (if last-child-node
+        (nop-get-end-node last-child-node)
+      last-top-level)))
 
-      ;; Create the overlay representing a top-level node, and its continuations.
-      ;; Overlay for the tree directive encompass all continuations.
-      ;; So we skip merged directives.
-      (unless (eq kind :merged)
-        (let* ((enode (nop-get-end-node d))
-               (epos (if (oref enode next-node)
-                         (oref (oref (oref enode next-node) positions) begin)
-                       (buffer-end 1)))
-               (spos (oref positions begin))
-               (box-ov (make-overlay spos epos)))
-          (overlay-put box-ov 'directive d)
-          (overlay-put box-ov 'priority depth)
-          (overlay-put box-ov 'face m-face)
-
-          (overlay-put box-ov 'keymap +nop-box-map+)
-          (overlay-put box-ov 'category '+nop-overlay-tree+)
-
-          (seq-let [margin-l margin-r] (nop-generate-margin-strings max-depth
-                                                                    (cons depth depth-list))
-            (overlay-put box-ov 'line-prefix
-                         (concat
-                          ;; (propertize "x" 'display `((margin left-margin) ,margin-l))
-                          (propertize "x" 'display `((margin right-margin) ,margin-r)))))))
-
-      ;; Generate title overlay for the directive.
+(defun nop-generate-directive-overlay (d)
+  "Generate title overlay for the directive."
+  (with-slots (depth positions kind) d
+    (let* ((h-face (elt (if (eq kind :merged)
+                            +nop-ov-header-faces+
+                          +nop-ov-main-header-faces+) depth)))
       (nop-generate-overlay (nop-info-r positions)
                             `((category +nop-overlay-directive+)
                               (help-echo "TREE")
@@ -734,7 +771,48 @@ If the list has exhausted, continuation is invalid."
                               ;; (before-string ,(propertize (format "%s%c "
                               ;;                                     (make-string depth ?\s)
                               ;;                                     (+ ?\N{U+2460} depth)) 'face h-face))
+                              (priority 100)
                               (face ,h-face))))))
+
+(defun nop-generate-tree-overlay (d bpos epos line-prefix header)
+  "Generate title overlay for the directive."
+  (with-slots (depth) d
+    (nop-generate-overlay (nop-range :begin bpos :end epos)
+                          `((directive ,d)
+                            (priority ,depth)
+                            (face ,(elt (if header
+                                            +nop-ov-main-header-faces+
+                                          +nop-ov-faces+)
+                                        depth))
+                            (keymap ,+nop-box-map+)
+                            (category +nop-overlay-tree+)
+                            (line-prefix ,line-prefix)))))
+
+(defun nop-generate-tree-overlays (d max-depth depth-list)
+  (with-slots (depth kind positions) d
+    (let* ((m-face (elt +nop-ov-faces+ depth)))
+
+      ;; Create the overlay representing a top-level node, and its continuations.
+      ;; Overlay for the tree directive encompass all continuations.
+      ;; So we skip merged directives.
+      (unless (eq kind :merged)
+        (seq-let [prefix prefix-h]
+            (nop-generate-margin-strings max-depth (cons depth depth-list))
+          (let* ((enode (nop-get-end-node d))
+                 (epos (if (oref enode next-node)
+                           (oref (oref (oref enode next-node) positions) begin)
+                         (buffer-end 1)))
+                 (mpos (1+ (oref positions end))) ; newline should be part of header.
+                 (bpos (oref positions begin))
+                 (head-ov (nop-generate-tree-overlay d bpos mpos prefix-h t))
+                 (body-ov (nop-generate-tree-overlay d mpos epos prefix nil)))
+            (overlay-put head-ov 'head head-ov)
+            (overlay-put body-ov 'head head-ov)
+            (overlay-put head-ov 'body body-ov)
+            (overlay-put body-ov 'body body-ov))))
+
+      ;; Generate title overlay for the directive.
+      (nop-generate-directive-overlay d))))
 
 (defun nop-prepare-for-overlay (max-width)
   (let ((margin-width (* (1+ max-depth) +nop-ov-margin-block-width+)))
@@ -746,17 +824,19 @@ If the list has exhausted, continuation is invalid."
 
 (defun nop-select-overlay-properties (d current-depth)
   (let ((indent (make-string current-depth ?\s)))
-    (cond ((nop-label-directive-p d)
-           `((help-echo "LABEL")
-             (before-string ,(propertize (format "%s\N{U+1433}" indent) 'face 'header-line))
-             (face header-line)))
-          ((nop-jump-directive-p d)
-           `((help-echo "JUMP")
-             (before-string ,(propertize (format "%s\N{U+140A}" indent) 'face 'highlight))
-             (face highlight)))
-          (t
-           '((help-echo "OTHER")
-             (face mode-line-highlight))))))
+    ;; higher is higher priority
+    (cons '(priority 100)
+          (cond ((nop-label-directive-p d)
+                 `((help-echo "LABEL")
+                   (before-string ,(propertize (format "%s\N{U+1433}" indent) 'face 'header-line))
+                   (face header-line)))
+                ((nop-jump-directive-p d)
+                 `((help-echo "JUMP")
+                   (before-string ,(propertize (format "%s\N{U+140A}" indent) 'face 'highlight))
+                   (face highlight)))
+                (t
+                 '((help-echo "OTHER")
+                   (face mode-line-highlight)))))))
 
 
 
