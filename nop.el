@@ -656,7 +656,8 @@ If the list has exhausted, continuation is invalid."
   (cl-loop for i below +nop-ov-size+
            collect (nop-gen-ov-h-face i (elt +nop-ov-faces+ i))))
 
-(defconst +nop-overlay-invisible+ '((invisible t)))
+(setplist '+nop-overlay-invisible+ '(invisible t))
+(defconst +nop-overlay-invisible+ '((category +nop-overlay-invisible+)))
 
 (defconst +nop-ov-margin-block-width+ 2)
 
@@ -679,35 +680,61 @@ If the list has exhausted, continuation is invalid."
 
            finally return (vector margin-l margin-r)))
 
+(defun nop-tree-overlay-p (ov)
+  (eq '+nop-overlay-tree+
+      (overlay-get ov 'category)))
+
+(defun nop-toggle-subtree-visibility ()
+  (interactive)
+  (let* ((overlays (overlays-at (point) t))
+         (ov (cl-find-if 'nop-tree-overlay-p overlays)))
+    (message "Overlay   : %s" ov)
+    (message "Directive : %s" (oref (overlay-get ov 'directive) description))))
+
+(defconst +nop-box-map+ (define-keymap "<tab>" #'nop-toggle-subtree-visibility))
+(defun nop-get-end-node (d) (or (car (last (oref d continuations))) d))
+
 (defun nop-generate-tree-overlays (d max-depth depth-list)
-  (let* ((current-depth (elt depth-list 0))
-         (m-face (elt +nop-ov-faces+ current-depth))
-         (h-face (elt +nop-ov-header-faces+ current-depth))
-         (pstart (oref (oref d positions) begin))
-         (pend (if (oref d next-node)
-                   (oref (oref (oref d next-node) positions) begin)
-                 (buffer-end 1)))
-         (box-ov (make-overlay pstart pend)))
+  (with-slots (depth kind positions) d
+    (let* ((m-face (elt +nop-ov-faces+ depth))
+           (h-face (elt +nop-ov-header-faces+ depth)))
 
-    (overlay-put box-ov 'priority current-depth)
-    (overlay-put box-ov 'face m-face)
+      ;; Create the overlay representing a top-level node, and its continuations.
+      ;; Overlay for the tree directive encompass all continuations.
+      ;; So we skip merged directives.
+      (unless (eq kind :merged)
+        (let* ((enode (nop-get-end-node d))
+               (epos (if (oref enode next-node)
+                         (oref (oref (oref enode next-node) positions) begin)
+                       (buffer-end 1)))
+               (spos (oref positions begin))
+               (box-ov (make-overlay spos epos)))
+          (overlay-put box-ov 'directive d)
+          (overlay-put box-ov 'priority depth)
+          (overlay-put box-ov 'face m-face)
 
-    (seq-let [margin-l margin-r] (nop-generate-margin-strings max-depth depth-list)
-      (overlay-put box-ov 'line-prefix
-                   (concat
-                    ;; (propertize "x" 'display `((margin left-margin) ,margin-l))
-                    (propertize "x" 'display `((margin right-margin) ,margin-r)))))
+          (overlay-put box-ov 'keymap +nop-box-map+)
+          (overlay-put box-ov 'category '+nop-overlay-tree+)
 
-    (nop-generate-overlay (nop-info-r (oref d positions))
-                          `((help-echo "TREE")
-                            ;; Alternatives: U+25C9 U+25CC U+25CE U+25A0 U+25A4 U+272A
-                            (before-string ,(propertize (format "%s\N{U+229B}"
-                                                                (make-string current-depth ?\s)) 'face h-face))
-                            ;; Numeric symbol alternative:
-                            ;; (before-string ,(propertize (format "%s%c "
-                            ;;                                     (make-string current-depth ?\s)
-                            ;;                                     (+ ?\N{U+2460} current-depth)) 'face h-face))
-                            (face ,h-face)))))
+          (seq-let [margin-l margin-r] (nop-generate-margin-strings max-depth
+                                                                    (cons depth depth-list))
+            (overlay-put box-ov 'line-prefix
+                         (concat
+                          ;; (propertize "x" 'display `((margin left-margin) ,margin-l))
+                          (propertize "x" 'display `((margin right-margin) ,margin-r)))))))
+
+      ;; Generate title overlay for the directive.
+      (nop-generate-overlay (nop-info-r positions)
+                            `((category +nop-overlay-directive+)
+                              (help-echo "TREE")
+                              ;; Alternatives: U+25C9 U+25CC U+25CE U+25A0 U+25A4 U+272A
+                              (before-string ,(propertize (format "%s\N{U+229B}"
+                                                                  (make-string depth ?\s)) 'face h-face))
+                              ;; Numeric symbol alternative:
+                              ;; (before-string ,(propertize (format "%s%c "
+                              ;;                                     (make-string depth ?\s)
+                              ;;                                     (+ ?\N{U+2460} depth)) 'face h-face))
+                              (face ,h-face))))))
 
 (defun nop-prepare-for-overlay (max-width)
   (let ((margin-width (* (1+ max-depth) +nop-ov-margin-block-width+)))
@@ -783,7 +810,7 @@ If the list has exhausted, continuation is invalid."
          d max-depth nil
          (lambda (d vdepth max-depth depth-list)
            (if (nop-tree-directive-p d)
-               (nop-generate-tree-overlays d max-depth (cons (oref d depth) depth-list))
+               (nop-generate-tree-overlays d max-depth depth-list)
              (nop-generate-overlay (nop-info-r (oref d positions))
                                    (nop-select-overlay-properties d (elt depth-list 0))))
 
@@ -807,8 +834,6 @@ If the list has exhausted, continuation is invalid."
 ;;; Nop Minor Mode
 ;;
 ;;
-
-;; (defun dummy ())
 
 ;; ;;;###autoload
 ;; (define-minor-mode nop-mode
