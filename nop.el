@@ -743,7 +743,13 @@ If the list has exhausted, continuation is invalid."
     (message "Overlay   : %s" ov)
     (message "Directive : %s" (oref directive description))))
 
-(defconst +nop-box-map+ (define-keymap "<tab>" #'nop-toggle-subtree-visibility))
+(defun nop-remove-overlays ()
+  (interactive)
+  (remove-overlays))
+
+(defconst +nop-box-map+ (define-keymap
+                          "<tab>" #'nop-toggle-subtree-visibility
+                          "q" #'nop-remove-overlays))
 
 (defun nop-get-end-node (d)
   (let* ((last-top-level (or (car (last (oref d continuations))) d))
@@ -904,7 +910,8 @@ If the list has exhausted, continuation is invalid."
                                  +nop-overlay-invisible+)
            (nop-generate-overlay (nop-dsuffix-r (oref d positions))
                                  +nop-overlay-invisible+)
-           (message "Applied fn to %s - %s" vdepth (oref d description))))))))
+           (message "Applied fn to %s - %s" vdepth (oref d description)))))))
+  (recenter))
 
 ;;
 ;;
