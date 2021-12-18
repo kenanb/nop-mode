@@ -307,6 +307,11 @@ The nesting level of the tree directive.")
               :documentation "
 The tree directive that marks the end of the immediate contents of this.")
 
+   (prev-node :initform nil
+              :type (or nop-tree-directive null)
+              :documentation "
+The tree directive of which the immediate contents are terminated by this.")
+
    (arbitrary :initform nil
               :type list
               :documentation "
@@ -572,6 +577,7 @@ If the list has exhausted, continuation is invalid."
 
            ;; :IGNORE isn't considered for children collection at all.
            (unless (eq (oref d kind) :ignore)
+             (when next (oset next prev-node d))
              (cl-shiftf (oref d next-node) next d)
              (nop-queue-push d queue)
              (oset d children (nconc leaves (oref d children)))
@@ -724,7 +730,7 @@ If the list has exhausted, continuation is invalid."
   (eq '+nop-overlay-tree+
       (overlay-get ov 'category)))
 
-(defun nop-jump-to-directive (d)
+(defun nop-nav-jump-to-directive (d)
   (goto-char (oref (nop-info-r (oref d positions)) begin)))
 
 (defun nop-get-last-node-of-subtree (d)
@@ -737,7 +743,7 @@ If the list has exhausted, continuation is invalid."
         (nop-get-last-node-of-subtree last-child-node)
       last-top-level)))
 
-(defun nop-jump-forward ()
+(defun nop-nav-jump-forward ()
   (interactive)
   (let* ((overlays (overlays-at (point) t))
          (ov (cl-find-if 'nop-tree-overlay-p overlays))
@@ -748,35 +754,55 @@ If the list has exhausted, continuation is invalid."
          (body (overlay-get head 'body))
          (hidden (overlay-get body 'invisible)))
     (when fwd-node
-      (nop-jump-to-directive fwd-node))))
+      (nop-nav-jump-to-directive fwd-node))))
 
-(defun nop-step-forward (&optional skip-merged)
-  (interactive)
+(defun nop-find-hovered-node (&optional skip-merged)
   (let* ((overlays (overlays-at (point) t))
          (ov (cl-find-if 'nop-tree-overlay-p overlays))
          (head (overlay-get ov 'head))
-         (directive (overlay-get head 'directive))
+         (directive (overlay-get head 'directive)))
+    (if skip-merged directive
+      (cl-loop with p = (point)
+               for curr = directive then next
+               for next = (oref curr next-node)
+               while next
+               ;; Looking for the first succeeding entry that's not behind the point.
+               until (< p (oref (oref next positions) begin))
+               finally return curr))))
 
-         (body (overlay-get head 'body))
-         (hidden (overlay-get body 'invisible))
+(defun nop-nav-home (&optional skip-merged)
+  (nop-nav-jump-to-directive (nop-find-hovered-node skip-merged)))
 
-         (depth (oref directive depth)))
-    (cl-loop with p = (point)
-             for prev = directive then next
-             for next = (oref prev next-node)
-             for begin = (oref (oref next positions) begin)
-             for ignore = (and skip-merged (eq (oref next kind) :merged))
-             ;; Looking for the first candidate that's not behind the point.
-             while (and next (or ignore (> p begin)))
-             finally (when next (nop-jump-to-directive next)))))
-
-(defun nop-step-forward-with-merged ()
+(defun nop-nav-home-with-merged ()
   (interactive)
-  (nop-step-forward))
+  (nop-nav-home))
 
-(defun nop-step-forward-skip-merged ()
+(defun nop-nav-home-skip-merged ()
   (interactive)
-  (nop-step-forward t))
+  (nop-nav-home t))
+
+(defun nop-nav-step (backward &optional skip-merged)
+  (cl-loop for curr = (nop-find-hovered-node skip-merged) then candidate
+           for candidate = (slot-value curr (if backward 'prev-node 'next-node))
+           ;; Looking for the first candidate that's not behind the point.
+           while (and skip-merged candidate (eq (oref candidate kind) :merged))
+           finally (when candidate (nop-nav-jump-to-directive candidate))))
+
+(defun nop-nav-step-forward-with-merged ()
+  (interactive)
+  (nop-nav-step nil))
+
+(defun nop-nav-step-forward-skip-merged ()
+  (interactive)
+  (nop-nav-step nil t))
+
+(defun nop-nav-step-backward-with-merged ()
+  (interactive)
+  (nop-nav-step t))
+
+(defun nop-nav-step-backward-skip-merged ()
+  (interactive)
+  (nop-nav-step t t))
 
 (defun nop-toggle-subtree-visibility ()
   (interactive)
@@ -801,7 +827,7 @@ If the list has exhausted, continuation is invalid."
         (overlay-put body 'display (format "%s  \N{U+22EF}
 " (make-string depth ?\s)))
         (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6})
-        (nop-jump-to-directive directive)))
+        (nop-nav-jump-to-directive directive)))
     (message "Overlay   : %s" ov)
     (message "Directive : %s" (oref directive description))))
 
@@ -814,9 +840,15 @@ If the list has exhausted, continuation is invalid."
                           "<tab>" #'nop-toggle-subtree-visibility
                           "<mouse-1>" #'nop-toggle-subtree-visibility
                           "q" #'nop-remove-overlays
-                          "n" #'nop-step-forward-with-merged
-                          "N" #'nop-step-forward-skip-merged
-                          "f" #'nop-jump-forward))
+                          "b" #'beginning-of-buffer
+                          "e" #'end-of-buffer
+                          "n" #'nop-nav-step-forward-with-merged
+                          "N" #'nop-nav-step-forward-skip-merged
+                          "p" #'nop-nav-step-backward-with-merged
+                          "P" #'nop-nav-step-backward-skip-merged
+                          "h" #'nop-nav-home-with-merged
+                          "H" #'nop-nav-home-skip-merged
+                          "f" #'nop-nav-jump-forward))
 
 (defun nop-generate-directive-overlay (d)
   "Generate title overlay for the directive."
