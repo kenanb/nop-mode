@@ -680,7 +680,7 @@ If the list has exhausted, continuation is invalid."
 (setplist '+nop-overlay-invisible+ '(invisible t priority 100))
 (defconst +nop-overlay-invisible+ '((category +nop-overlay-invisible+)))
 
-(defconst +nop-ov-margin-block-width+ 2)
+(defconst +nop-ov-margin-block-width+ 4)
 
 (defun nop-generate-margin-strings (max-depth depths)
   (cl-loop with size-m = (* (1+ max-depth) +nop-ov-margin-block-width+)
@@ -729,16 +729,24 @@ If the list has exhausted, continuation is invalid."
   (let* ((overlays (overlays-at (point) t))
          (ov (cl-find-if 'nop-tree-overlay-p overlays))
          (head (overlay-get ov 'head))
-         (body (overlay-get ov 'body))
+
+         (body (overlay-get head 'body))
+         (title (overlay-get head 'title))
          (directive (overlay-get head 'directive))
-         (state (overlay-get body 'invisible)))
+
+         (state (overlay-get body 'invisible))
+
+         (depth (oref directive depth)))
     (unless (eq :root (oref directive kind))
       (overlay-put body 'invisible (not state))
       (if state
-          (overlay-put body 'display nil)
+          (progn
+            (overlay-put body 'display nil)
+            (store-substring (overlay-get title 'before-string) depth ?\N{U+25BC}))
         ;; A blank line is required to maintain correct margins on collapse.
-        (overlay-put body 'display "...
-")
+        (overlay-put body 'display (format "%s  \N{U+22EF}
+" (make-string depth ?\s)))
+        (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6})
         (goto-char (oref (oref directive positions) info))))
     (message "Overlay   : %s" ov)
     (message "Directive : %s" (oref directive description))))
@@ -764,39 +772,34 @@ If the list has exhausted, continuation is invalid."
 (defun nop-generate-directive-overlay (d)
   "Generate title overlay for the directive."
   (with-slots (depth positions kind) d
-    (let* ((h-face (elt (if (eq kind :merged)
-                            +nop-ov-header-faces+
-                          +nop-ov-main-header-faces+) depth)))
+    (let* ((c (eq kind :merged))
+           (h-face (elt (if c +nop-ov-header-faces+ +nop-ov-main-header-faces+) depth))
+           (sym (if c ?\N{U+25BD} ?\N{U+25BC})))
       (nop-generate-overlay (nop-info-r positions)
                             `((category +nop-overlay-directive+)
                               (help-echo "TREE")
-                              ;; Alternatives: U+25C9 U+25CC U+25CE U+25A0 U+25A4 U+272A
-                              (before-string ,(propertize (format "%s\N{U+229B}"
-                                                                  (make-string depth ?\s)) 'face h-face))
-                              ;; Numeric symbol alternative:
-                              ;; (before-string ,(propertize (format "%s%c "
-                              ;;                                     (make-string depth ?\s)
-                              ;;                                     (+ ?\N{U+2460} depth)) 'face h-face))
+                              (before-string ,(propertize (format "%s%c"
+                                                                  (make-string depth ?\s)
+                                                                  sym) 'face h-face))
                               (priority 100)
                               (face ,h-face))))))
 
-(defun nop-generate-tree-overlay (d bpos epos line-prefix header)
+(defun nop-generate-tree-overlay (bpos epos depth line-prefix header)
   "Generate title overlay for the directive."
-  (with-slots (depth) d
-    (nop-generate-overlay (nop-range :begin bpos :end epos)
-                          `((directive ,d)
-                            (priority ,depth)
-                            (face ,(elt (if header
-                                            +nop-ov-main-header-faces+
-                                          +nop-ov-faces+)
-                                        depth))
-                            (keymap ,+nop-box-map+)
-                            (category +nop-overlay-tree+)
-                            (line-prefix ,line-prefix)))))
+  (nop-generate-overlay (nop-range :begin bpos :end epos)
+                        `((priority ,depth)
+                          (face ,(elt (if header
+                                          +nop-ov-main-header-faces+
+                                        +nop-ov-faces+)
+                                      depth))
+                          (keymap ,+nop-box-map+)
+                          (category +nop-overlay-tree+)
+                          (line-prefix ,line-prefix))))
 
 (defun nop-generate-tree-overlays (d max-depth depth-list)
   (with-slots (depth kind positions) d
-    (let* ((m-face (elt +nop-ov-faces+ depth)))
+    (let* ((m-face (elt +nop-ov-faces+ depth))
+           (title-ov (nop-generate-directive-overlay d)))
 
       ;; Create the overlay representing a top-level node, and its continuations.
       ;; Overlay for the tree directive encompass all continuations.
@@ -810,15 +813,13 @@ If the list has exhausted, continuation is invalid."
                          (buffer-end 1)))
                  (mpos (1+ (oref positions end))) ; newline should be part of header.
                  (bpos (oref positions begin))
-                 (head-ov (nop-generate-tree-overlay d bpos mpos prefix-h t))
-                 (body-ov (nop-generate-tree-overlay d mpos epos prefix nil)))
-            (overlay-put head-ov 'head head-ov)
+                 (head-ov (nop-generate-tree-overlay bpos mpos depth prefix-h t))
+                 (body-ov (nop-generate-tree-overlay mpos epos depth prefix nil)))
             (overlay-put body-ov 'head head-ov)
+            (overlay-put head-ov 'head head-ov)
             (overlay-put head-ov 'body body-ov)
-            (overlay-put body-ov 'body body-ov))))
-
-      ;; Generate title overlay for the directive.
-      (nop-generate-directive-overlay d))))
+            (overlay-put head-ov 'title title-ov)
+            (overlay-put head-ov 'directive d)))))))
 
 (defun nop-prepare-for-overlay (max-width)
   (let ((margin-width (* (1+ max-depth) +nop-ov-margin-block-width+)))
