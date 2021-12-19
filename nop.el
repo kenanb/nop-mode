@@ -312,6 +312,11 @@ The tree directive that marks the end of the immediate contents of this.")
               :documentation "
 The tree directive of which the immediate contents are terminated by this.")
 
+   (head-overlay :initform nil
+                 :type (or overlay null)
+                 :documentation "
+The canonical overlay representing this directive.")
+
    (arbitrary :initform nil
               :type list
               :documentation "
@@ -804,32 +809,70 @@ If the list has exhausted, continuation is invalid."
   (interactive)
   (nop-nav-step t t))
 
-(defun nop-toggle-subtree-visibility ()
+(defun nop-nav-show-node (d)
+  (with-slots (kind depth head-overlay) d
+    (unless (eq :root kind)
+      (let* ((body (overlay-get head-overlay 'body))
+             (title (overlay-get head-overlay 'title)))
+        (overlay-put body 'invisible nil)
+        (overlay-put body 'display nil)
+        (store-substring (overlay-get title 'before-string) depth ?\N{U+25BC})))))
+
+(defun nop-nav-hide-node (d)
+  (with-slots (kind depth head-overlay) d
+    (unless (eq :root kind)
+      (let* ((body (overlay-get head-overlay 'body))
+             (title (overlay-get head-overlay 'title)))
+
+        ;; Jump to the beginning of the directive that will be hidden.
+        (nop-nav-jump-to-directive d)
+
+        (overlay-put body 'invisible t)
+        ;; A blank line is required to maintain correct margins on collapse.
+        (overlay-put body 'display (format "%s  \N{U+22EF}
+" (make-string depth ?\s)))
+        (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6})))))
+
+(defun nop-nav-toggle-node-visibility ()
   (interactive)
   (let* ((overlays (overlays-at (point) t))
          (ov (cl-find-if 'nop-tree-overlay-p overlays))
          (head (overlay-get ov 'head))
-
          (body (overlay-get head 'body))
-         (title (overlay-get head 'title))
-         (directive (overlay-get head 'directive))
-
-         (hidden (overlay-get body 'invisible))
-
-         (depth (oref directive depth)))
+         (directive (overlay-get head 'directive)))
     (unless (eq :root (oref directive kind))
-      (overlay-put body 'invisible (not hidden))
-      (if hidden
-          (progn
-            (overlay-put body 'display nil)
-            (store-substring (overlay-get title 'before-string) depth ?\N{U+25BC}))
-        ;; A blank line is required to maintain correct margins on collapse.
-        (overlay-put body 'display (format "%s  \N{U+22EF}
-" (make-string depth ?\s)))
-        (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6})
-        (nop-nav-jump-to-directive directive)))
+      (if (overlay-get body 'invisible)
+          (nop-nav-show-node directive)
+        (nop-nav-hide-node directive)))
     (message "Overlay   : %s" ov)
     (message "Directive : %s" (oref directive description))))
+
+(defun nop-apply-immediate-children (fn d)
+  (cl-loop for c in (oref d children) do (funcall fn c)))
+
+(defun nop-apply-all-children (fn d)
+  (nop-apply-immediate-children fn d)
+  (cl-loop for c in (oref d continuations) do (nop-apply-immediate-children fn c)))
+
+(defun nop-nav-show-subtree-with-merged ()
+  (interactive)
+  (nop-apply-immediate-children #'nop-nav-show-node (nop-find-hovered-node)))
+
+(defun nop-nav-show-subtree-skip-merged ()
+  (interactive)
+  (nop-apply-all-children #'nop-nav-show-node (nop-find-hovered-node t)))
+
+(defun nop-nav-hide-subtree-with-merged ()
+  (interactive)
+  (let ((d (nop-find-hovered-node)))
+    (nop-apply-immediate-children #'nop-nav-hide-node d)
+    (nop-nav-jump-to-directive d)))
+
+(defun nop-nav-hide-subtree-skip-merged ()
+  (interactive)
+  (let ((d (nop-find-hovered-node t)))
+    (nop-apply-all-children #'nop-nav-hide-node d)
+    (nop-nav-jump-to-directive d)))
 
 (defun nop-remove-overlays ()
   (interactive)
@@ -837,8 +880,12 @@ If the list has exhausted, continuation is invalid."
   (remove-overlays))
 
 (defconst +nop-box-map+ (define-keymap
-                          "<tab>" #'nop-toggle-subtree-visibility
-                          "<mouse-1>" #'nop-toggle-subtree-visibility
+                          "<tab>" #'nop-nav-toggle-node-visibility
+                          "<mouse-1>" #'nop-nav-toggle-node-visibility
+                          "+" #'nop-nav-show-subtree-with-merged
+                          "C-+" #'nop-nav-show-subtree-skip-merged
+                          "-" #'nop-nav-hide-subtree-with-merged
+                          "C--" #'nop-nav-hide-subtree-skip-merged
                           "q" #'nop-remove-overlays
                           "b" #'beginning-of-buffer
                           "e" #'end-of-buffer
@@ -900,7 +947,8 @@ If the list has exhausted, continuation is invalid."
             (overlay-put head-ov 'head head-ov)
             (overlay-put head-ov 'body body-ov)
             (overlay-put head-ov 'title title-ov)
-            (overlay-put head-ov 'directive d)))))))
+            (overlay-put head-ov 'directive d)
+            (oset d head-overlay head-ov)))))))
 
 (defun nop-prepare-for-overlay (max-width)
   (let ((margin-width (* (1+ max-depth) +nop-ov-margin-block-width+)))
