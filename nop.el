@@ -759,7 +759,8 @@ If the list has exhausted, continuation is invalid."
          (body (overlay-get head 'body))
          (hidden (overlay-get body 'invisible)))
     (when fwd-node
-      (nop-nav-jump-to-directive fwd-node))))
+      (nop-nav-jump-to-directive fwd-node)))
+  (recenter))
 
 (defun nop-find-hovered-node (&optional skip-merged)
   (let* ((overlays (overlays-at (point) t))
@@ -791,7 +792,8 @@ If the list has exhausted, continuation is invalid."
            for candidate = (slot-value curr (if backward 'prev-node 'next-node))
            ;; Looking for the first candidate that's not behind the point.
            while (and skip-merged candidate (eq (oref candidate kind) :merged))
-           finally (when candidate (nop-nav-jump-to-directive candidate))))
+           finally (when candidate (nop-nav-jump-to-directive candidate)))
+  (recenter))
 
 (defun nop-nav-step-forward-with-merged ()
   (interactive)
@@ -948,7 +950,8 @@ If the list has exhausted, continuation is invalid."
             (overlay-put head-ov 'body body-ov)
             (overlay-put head-ov 'title title-ov)
             (overlay-put head-ov 'directive d)
-            (oset d head-overlay head-ov)))))))
+            (oset d head-overlay head-ov)
+            (nop-nav-hide-node d)))))))
 
 (defun nop-prepare-for-overlay (max-width)
   (let ((margin-width (* (1+ max-depth) +nop-ov-margin-block-width+)))
