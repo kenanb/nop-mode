@@ -96,7 +96,13 @@
 
 (defun nop-generate-overlay (r p)
   (let ((ov (nop-apply-range r #'make-overlay)))
-    (overlay-put ov 'evaporate t)
+
+    ;; We cache  the end  of overlays, so  we can temporarily  reduce them  to 0
+    ;; size, when needed.   Alternatively, we can try priority of  0 with cached
+    ;; priority.  The difference is, if there are any properties not provided by
+    ;; parent overlay, this will still leak into view.
+    (overlay-put ov 'cached-end (oref r end))
+
     (dolist (kv p)
       (apply #'overlay-put ov kv))
     ov))
@@ -647,6 +653,17 @@ If the list has exhausted, continuation is invalid."
                                          "#92a6a5"
                                          "#8a9d9e"))
 
+(defconst +nop-ov-shadow-colors+ (vector "#9e9e9e"
+                                         "#959595"
+                                         "#8e8e8e"
+                                         "#858585"
+                                         "#7e7e7e"
+                                         "#757575"
+                                         "#6e6e6e"
+                                         "#656565"
+                                         "#5e5e5e"
+                                         "#555555"))
+
 (defconst +nop-ov-size+ (length +nop-ov-colors+))
 
 (defface nop-ov-base '((t :background "black" :extend t))
@@ -676,6 +693,13 @@ If the list has exhausted, continuation is invalid."
                                          :background ,(elt +nop-ov-header-colors+ depth)))
                          "")))
 
+(defun nop-gen-ov-sl-face (depth inherit)
+  (let ((s-face-sym (intern (concat "nop-ov-sl-face-" (number-to-string depth)))))
+    (custom-declare-face s-face-sym `((t :inherit ,inherit
+                                         :foreground ,(elt +nop-ov-shadow-colors+ depth)))
+                                         ;; :foreground "black"))
+                         "")))
+
 (defconst +nop-ov-faces+
   (cl-loop for i below +nop-ov-size+
            collect (nop-gen-ov-face i 'nop-ov-base)))
@@ -687,6 +711,10 @@ If the list has exhausted, continuation is invalid."
 (defconst +nop-ov-main-header-faces+
   (cl-loop for i below +nop-ov-size+
            collect (nop-gen-ov-hm-face i (elt +nop-ov-header-faces+ i))))
+
+(defconst +nop-ov-shadow-line-faces+
+  (cl-loop for i below +nop-ov-size+
+           collect (nop-gen-ov-sl-face i (elt +nop-ov-faces+ i))))
 
 (setplist '+nop-overlay-invisible+ '(invisible t priority 100))
 (defconst +nop-overlay-invisible+ '((category +nop-overlay-invisible+)))
@@ -757,7 +785,7 @@ If the list has exhausted, continuation is invalid."
          (fwd-node (oref (nop-get-last-node-of-subtree directive) next-node))
 
          (body (overlay-get head 'body))
-         (hidden (overlay-get body 'invisible)))
+         (hidden (overlay-get head 'hidden)))
     (when fwd-node
       (nop-nav-jump-to-directive fwd-node)))
   (recenter))
@@ -811,29 +839,78 @@ If the list has exhausted, continuation is invalid."
   (interactive)
   (nop-nav-step t t))
 
+(defun nop-adjust-node-overlays (d hide)
+  (unless (eq :merged (oref d kind))
+    (cl-loop with head = (oref d head-overlay)
+             for c in '(head body init title)
+             for co = (overlay-get head c)
+             for s = (overlay-start co)
+             for e = (if hide s (overlay-get co 'cached-end))
+             do (move-overlay co s e))))
+
+(defun nop-call-for-main-nodes (d fn apply-p apply-p-fn)
+  (when apply-p (funcall fn d))
+  (when (nop-tree-directive-p d)
+    (cl-loop for c in-ref (oref d children)
+             do (nop-call-for-main-nodes c fn (funcall apply-p-fn c) apply-p-fn))
+    (cl-loop for c in-ref (oref d continuations)
+             do (nop-call-for-main-nodes c fn (funcall apply-p-fn c) apply-p-fn))))
+
+(defun nop-toggle-subtree-overlays-placement (directive hide)
+  (nop-call-for-main-nodes
+   directive
+   (lambda (directive) (nop-adjust-node-overlays directive hide))
+   nil ; Never applies to root.
+   #'nop-tree-directive-p))
+
 (defun nop-nav-show-node (d)
   (with-slots (kind depth head-overlay) d
     (unless (eq :root kind)
-      (let* ((body (overlay-get head-overlay 'body))
-             (title (overlay-get head-overlay 'title)))
-        (overlay-put body 'invisible nil)
+      (let ((title (overlay-get head-overlay 'title))
+            (init (overlay-get head-overlay 'init))
+            (body (overlay-get head-overlay 'body)))
+
+        ;; Property to keep explicit drawer state.
+        (overlay-put head-overlay 'hidden nil)
+
+        (overlay-put init 'before-string nil)
+
+        (overlay-put init 'after-string nil)
+
+        ;; Show body
         (overlay-put body 'display nil)
-        (store-substring (overlay-get title 'before-string) depth ?\N{U+25BC})))))
+
+        (store-substring (overlay-get title 'before-string) depth ?\N{U+25BC}))
+
+      (nop-toggle-subtree-overlays-placement d nil))))
 
 (defun nop-nav-hide-node (d)
   (with-slots (kind depth head-overlay) d
     (unless (eq :root kind)
-      (let* ((body (overlay-get head-overlay 'body))
-             (title (overlay-get head-overlay 'title)))
+      (let ((title (overlay-get head-overlay 'title))
+            (init (overlay-get head-overlay 'init))
+            (body (overlay-get head-overlay 'body))
+            (face (elt +nop-ov-shadow-line-faces+ depth)))
 
         ;; Jump to the beginning of the directive that will be hidden.
         (nop-nav-jump-to-directive d)
 
-        (overlay-put body 'invisible t)
+        ;; Property to keep explicit drawer state.
+        (overlay-put head-overlay 'hidden t)
+
         ;; A blank line is required to maintain correct margins on collapse.
-        (overlay-put body 'display (format "%s  \N{U+22EF}
-" (make-string depth ?\s)))
-        (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6})))))
+        (overlay-put init 'before-string
+                     (propertize (format "%s\N{U+22EF}" (make-string depth ?\s)) 'face face))
+
+        (overlay-put init 'after-string (propertize " " 'face face
+                                                    'display '(space :align-to (- right-margin 25))))
+
+        ;; Hide body
+        (overlay-put body 'display (propertize (format "%s (%s) \n" kind depth) 'face face))
+
+        (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6}))
+
+      (nop-toggle-subtree-overlays-placement d t))))
 
 (defun nop-nav-toggle-node-visibility ()
   (interactive)
@@ -843,7 +920,7 @@ If the list has exhausted, continuation is invalid."
          (body (overlay-get head 'body))
          (directive (overlay-get head 'directive)))
     (unless (eq :root (oref directive kind))
-      (if (overlay-get body 'invisible)
+      (if (overlay-get head 'hidden)
           (nop-nav-show-node directive)
         (nop-nav-hide-node directive)))
     (message "Overlay   : %s" ov)
@@ -944,14 +1021,15 @@ If the list has exhausted, continuation is invalid."
                  (mpos (1+ (oref positions end))) ; newline should be part of header.
                  (bpos (oref positions begin))
                  (head-ov (nop-generate-tree-overlay bpos mpos depth prefix-h t))
+                 (init-ov (nop-generate-tree-overlay mpos mpos depth prefix nil))
                  (body-ov (nop-generate-tree-overlay mpos epos depth prefix nil)))
             (overlay-put body-ov 'head head-ov)
             (overlay-put head-ov 'head head-ov)
-            (overlay-put head-ov 'body body-ov)
             (overlay-put head-ov 'title title-ov)
+            (overlay-put head-ov 'init init-ov)
+            (overlay-put head-ov 'body body-ov)
             (overlay-put head-ov 'directive d)
-            (oset d head-overlay head-ov)
-            (nop-nav-hide-node d)))))))
+            (oset d head-overlay head-ov)))))))
 
 (defun nop-prepare-for-overlay (max-width)
   (let ((margin-width (* (1+ max-depth) +nop-ov-margin-block-width+)))
@@ -1044,7 +1122,14 @@ If the list has exhausted, continuation is invalid."
                                  +nop-overlay-invisible+)
            (nop-generate-overlay (nop-dsuffix-r (oref d positions))
                                  +nop-overlay-invisible+)
-           (message "Applied fn to %s - %s" vdepth (oref d description)))))))
+           (message "Applied fn to %s - %s" vdepth (oref d description))))
+
+        (nop-call-for-each-node
+         d max-depth nil
+         (lambda (d vdepth max-depth depth-list)
+           (when (nop-tree-directive-p d)
+             (unless (eq (oref d kind) :merged)
+               (nop-nav-hide-node d))))))))
   (recenter))
 
 ;;
