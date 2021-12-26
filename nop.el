@@ -806,35 +806,26 @@ If the list has exhausted, continuation is invalid."
   (interactive)
   (nop-nav-step t t))
 
-(defun nop-adjust-node-overlays (d collapse)
-  (when (and (nop-tree-directive-p d) (not (eq :merged (oref d kind))))
-    (cl-loop with handle = (oref d handle)
-             for c in '(handle drawer ellipsis title)
-             for co = (overlay-get handle c)
-             if collapse do (delete-overlay co)
-             else do (move-overlay co
-                                   (overlay-get co 'cached-start)
-                                   (overlay-get co 'cached-end)))))
+(defun nop-recurse-for-subtree (recurse-fn d &rest args)
+  (cl-loop for c in-ref (oref d children) do (apply recurse-fn c args))
+  (cl-loop for c in-ref (oref d continuations) do (apply recurse-fn c args)))
 
-(defun nop-call-for-head-nodes (d fn terminatep)
-  (funcall fn d)
+(defun nop-adjust-subtree-overlays (d collapse)
   (when (nop-tree-directive-p d)
-    (unless (funcall terminatep d)
-      (cl-loop for c in-ref (oref d children)
-               do (nop-call-for-head-nodes c fn terminatep))
-      (cl-loop for c in-ref (oref d continuations)
-               do (nop-call-for-head-nodes c fn terminatep)))))
-
-(defun nop-toggle-subtree-overlays-placement (directive collapse)
-  (cl-flet ((fn (d) (nop-adjust-node-overlays d collapse))
-            (terminatep (d)
-              ;; Terminate if directive is a collapsed head.
-              (unless (eq :merged (oref d kind))
-                (overlay-get (oref d handle) 'collapsed))))
-    (cl-loop for c in-ref (oref directive children)
-             do (nop-call-for-head-nodes c #'fn #'terminatep))
-    (cl-loop for c in-ref (oref directive continuations)
-             do (nop-call-for-head-nodes c #'fn #'terminatep))))
+    (if (eq :merged (oref d kind))
+        (nop-recurse-for-subtree #'nop-adjust-subtree-overlays d collapse)
+      (cl-loop with handle = (oref d handle)
+               for c in '(handle drawer ellipsis title)
+               for co = (overlay-get handle c)
+               ;; Deletion "detaches" the overlay.
+               if collapse do (delete-overlay co)
+               ;; Moving will "reattach" it.
+               else do (move-overlay co
+                                     (overlay-get co 'cached-start)
+                                     (overlay-get co 'cached-end)))
+      ;; Terminate if directive is a collapsed head.
+      (unless (overlay-get (oref d handle) 'collapsed)
+        (nop-recurse-for-subtree #'nop-adjust-subtree-overlays d collapse)))))
 
 (defun nop-nav-expand-node (d)
   (with-slots (kind depth handle) d
@@ -855,7 +846,7 @@ If the list has exhausted, continuation is invalid."
 
         (store-substring (overlay-get title 'before-string) depth ?\N{U+25BC}))
 
-      (nop-toggle-subtree-overlays-placement d nil))))
+      (nop-recurse-for-subtree #'nop-adjust-subtree-overlays d nil))))
 
 (defun nop-nav-collapse-node (d)
   (with-slots (kind depth handle) d
@@ -888,7 +879,9 @@ If the list has exhausted, continuation is invalid."
 
         (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6}))
 
-      (nop-toggle-subtree-overlays-placement d t))))
+      ;; Necessary to prevent properties of nested collapsed overlays from
+      ;; leaking into visual representation of the collapsed ancestor.
+      (nop-recurse-for-subtree #'nop-adjust-subtree-overlays d t))))
 
 (defun nop-nav-toggle-node-visibility ()
   (interactive)
