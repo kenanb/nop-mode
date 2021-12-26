@@ -101,6 +101,7 @@
     ;; size, when needed.   Alternatively, we can try priority of  0 with cached
     ;; priority.  The difference is, if there are any properties not provided by
     ;; parent overlay, this will still leak into view.
+    (overlay-put ov 'cached-start (oref r begin))
     (overlay-put ov 'cached-end (oref r end))
 
     (dolist (kv p)
@@ -427,6 +428,7 @@ The identifier of the label.")))
                    (?C :class)
                    (?F :function)
                    (?R :region)
+                   (?T :todo)
                    (?B :branch))))
 
   (:method :after
@@ -527,7 +529,7 @@ If the list has exhausted, continuation is invalid."
       (:continue
        (setf kind :ignore)
        (pcase (nop-merge-continue source (cdr directives))
-         (:scope-exit (message "ERROR: [INVALID CONTINUATION] No top-level directive at given depth: %s\n"
+         (:scope-exit (message "ERROR: [INVALID CONTINUATION] No heading node at given depth: %s\n"
                                description) nil)
          (:exhausted  (message "ERROR: [INVALID CONTINUATION] Exhausted directives: %s\n"
                                description) nil)
@@ -538,13 +540,12 @@ If the list has exhausted, continuation is invalid."
       (t (list source)))))
 
 (cl-defun nop-process-continuations (directives &aux (source (car directives)))
-  "Possibly registers a series of continuations to a top-level entry."
+  "Possibly registers a series of continuations to a heading node."
 
-  ;; Register continuations under main tree directives.
   (if-let ((clist (and
                    ;; Only process tree directives.
                    (nop-tree-directive-p source)
-                   ;; Skip (possibly already populated) top-level entry.
+                   ;; Skip (possibly already populated) heading node.
                    (eq (oref source kind) :continue)
                    ;; Returned continuation list is ordered bottom-up.
                    (reverse (nop-merge-new-source directives)))))
@@ -583,7 +584,7 @@ If the list has exhausted, continuation is invalid."
            for d = (car dl)
            if (nop-tree-directive-p d) do
 
-           ;; Register continuations under main tree directives.
+           ;; Register continuations under heading nodes.
            (nop-process-continuations dl)
 
            ;; :IGNORE isn't considered for children collection at all.
@@ -631,90 +632,56 @@ If the list has exhausted, continuation is invalid."
 ;;
 ;;
 
-(defconst +nop-ov-colors+ (vector "#faede2"
-                                  "#ede5d8"
-                                  "#dfdccf"
-                                  "#d2d3c8"
-                                  "#c5cbc0"
-                                  "#b9c2ba"
-                                  "#aeb9b3"
-                                  "#a4b0ac"
-                                  "#9aa6a5"
-                                  "#929d9e"))
+(defconst +nop-ov-size+ 10)
 
-(defconst +nop-ov-header-colors+ (vector "#edede2"
-                                         "#dfe5d8"
-                                         "#d2dccf"
-                                         "#c5d3c8"
-                                         "#b9cbc0"
-                                         "#aec2ba"
-                                         "#a4b9b3"
-                                         "#9ab0ac"
-                                         "#92a6a5"
-                                         "#8a9d9e"))
-
-(defconst +nop-ov-shadow-colors+ (vector "#9e9e9e"
-                                         "#959595"
-                                         "#8e8e8e"
-                                         "#858585"
-                                         "#7e7e7e"
-                                         "#757575"
-                                         "#6e6e6e"
-                                         "#656565"
-                                         "#5e5e5e"
-                                         "#555555"))
-
-(defconst +nop-ov-size+ (length +nop-ov-colors+))
-
-(defface nop-ov-base '((t :background "black" :extend t))
+(defface nop-ov-base '((t :extend t))
   "Default face for highlighting an overlay in nop-mode."
   :version "0.1"
   :group 'nop-overlay)
 
-(defun nop-gen-ov-face (depth inherit)
-  (let ((face-sym (intern (concat "nop-ov-face-" (number-to-string depth))))
-        (bg-color (elt +nop-ov-colors+ depth)))
-    (custom-declare-face face-sym `((t :inherit ,inherit :background ,bg-color)) "")))
+(defun nop-color-component (idx a v init)
+  (format "%02X" (- init (truncate (* (+ v (* .5 a idx)) idx)))))
 
-(defun nop-gen-ov-h-face (depth inherit)
-  (let ((h-face-sym (intern (concat "nop-ov-h-face-" (number-to-string depth)))))
-    (custom-declare-face h-face-sym `((t :inherit ,inherit
+(defun nop-color (index acceleration component-velocities component-offsets)
+  (format "#%s" (cl-loop for v in component-velocities and o in component-offsets
+                         concat (nop-color-component index acceleration v o))))
+
+(defun nop-gen-faces (name-prefix doc-fmt fn)
+  (cl-loop for depth below +nop-ov-size+
+           collect
+           (custom-declare-face
+            (intern (concat name-prefix (number-to-string depth)))
+            `((t :inherit nop-ov-base
+                 ,@(funcall fn depth)))
+            (format doc-fmt depth))))
+
+(defconst +nop-ov-drawer-faces+
+  (nop-gen-faces "nop-ov-drawer-face-"
+                 "Drawer content box face for depth %s."
+                 (lambda (depth)
+                   (list :background (nop-color depth -.5 '(#xA #xB #xC) '(#xFA #xF4 #xEA))))))
+
+(defconst +nop-ov-header-faces+
+  (nop-gen-faces "nop-ov-header-face-"
+                 "Drawer header line face for depth %s."
+                 (lambda (depth)
+                   (list :overline "black"
+                         :background (nop-color depth .25 '(#xA #xA #x6) '(#xED #xED #xE2))))))
+
+(defconst +nop-ov-shadow-faces+
+  (nop-gen-faces "nop-ov-shadow-face-"
+                 "Summary line face for depth %s, active when drawer is closed."
+                 (lambda (depth)
+                   (list :foreground (nop-color depth .25 '(7 7 7) '(#x9E #x9E #x9E))))))
+
+(defconst +nop-ov-title-face+
+  (custom-declare-face 'nop-ov-t-face `((t
                                          ;; :family "Source Sans Pro"
                                          :weight semi-bold
                                          ;; :height 0.9
-                                         :distant-foreground "gainsboro"
+                                         :distant-foreground "rosy brown"
                                          ;; :foreground "maroon"
-                                         :foreground "saddle brown")) "")))
-
-(defun nop-gen-ov-hm-face (depth inherit)
-  (let ((h-face-sym (intern (concat "nop-ov-hm-face-" (number-to-string depth)))))
-    (custom-declare-face h-face-sym `((t :inherit ,inherit
-                                         :overline t
-                                         :background ,(elt +nop-ov-header-colors+ depth)))
-                         "")))
-
-(defun nop-gen-ov-sl-face (depth inherit)
-  (let ((s-face-sym (intern (concat "nop-ov-sl-face-" (number-to-string depth)))))
-    (custom-declare-face s-face-sym `((t :inherit ,inherit
-                                         :foreground ,(elt +nop-ov-shadow-colors+ depth)))
-                                         ;; :foreground "black"))
-                         "")))
-
-(defconst +nop-ov-faces+
-  (cl-loop for i below +nop-ov-size+
-           collect (nop-gen-ov-face i 'nop-ov-base)))
-
-(defconst +nop-ov-header-faces+
-  (cl-loop for i below +nop-ov-size+
-           collect (nop-gen-ov-h-face i (elt +nop-ov-faces+ i))))
-
-(defconst +nop-ov-main-header-faces+
-  (cl-loop for i below +nop-ov-size+
-           collect (nop-gen-ov-hm-face i (elt +nop-ov-header-faces+ i))))
-
-(defconst +nop-ov-shadow-line-faces+
-  (cl-loop for i below +nop-ov-size+
-           collect (nop-gen-ov-sl-face i (elt +nop-ov-faces+ i))))
+                                         :foreground "saddle brown")) ""))
 
 (setplist '+nop-overlay-invisible+ '(invisible t priority 100))
 (defconst +nop-overlay-invisible+ '((category +nop-overlay-invisible+)))
@@ -731,24 +698,24 @@ If the list has exhausted, continuation is invalid."
            for last = (1+ max-depth) then curr
            for curr in depths
 
-           for face = (elt +nop-ov-faces+ curr)
-           for hface = (elt +nop-ov-main-header-faces+ curr) then face
+           for drawer-face = (elt +nop-ov-drawer-faces+ curr)
+           for header-face = (elt +nop-ov-header-faces+ curr) then drawer-face
 
            for last-m = (* last +nop-ov-margin-block-width+)
            for curr-m = (* curr +nop-ov-margin-block-width+)
 
            do
            ;; (put-text-property curr-m last-m
-           ;;                    'face face
+           ;;                    'face drawer-face
            ;;                    margin-l)
            ;; (put-text-property curr-m last-m
-           ;;                    'face hface
+           ;;                    'face header-face
            ;;                    margin-lh)
            (put-text-property (- size-m last-m) (- size-m curr-m)
-                              'face face
+                              'face drawer-face
                               margin-r)
            (put-text-property (- size-m last-m) (- size-m curr-m)
-                              'face hface
+                              'face header-face
                               margin-rh)
 
            finally return (vector
@@ -785,7 +752,7 @@ If the list has exhausted, continuation is invalid."
          (fwd-node (oref (nop-get-last-node-of-subtree directive) next-node))
 
          (body (overlay-get head 'body))
-         (hidden (overlay-get head 'hidden)))
+         (collapsed (overlay-get head 'collapsed)))
     (when fwd-node
       (nop-nav-jump-to-directive fwd-node)))
   (recenter))
@@ -839,31 +806,37 @@ If the list has exhausted, continuation is invalid."
   (interactive)
   (nop-nav-step t t))
 
-(defun nop-adjust-node-overlays (d hide)
-  (unless (eq :merged (oref d kind))
+(defun nop-adjust-node-overlays (d collapse)
+  (when (and (nop-tree-directive-p d) (not (eq :merged (oref d kind))))
     (cl-loop with head = (oref d head-overlay)
              for c in '(head body init title)
              for co = (overlay-get head c)
-             for s = (overlay-start co)
-             for e = (if hide s (overlay-get co 'cached-end))
-             do (move-overlay co s e))))
+             if collapse do (delete-overlay co)
+             else do (move-overlay co
+                                   (overlay-get co 'cached-start)
+                                   (overlay-get co 'cached-end)))))
 
-(defun nop-call-for-main-nodes (d fn apply-p apply-p-fn)
-  (when apply-p (funcall fn d))
+(defun nop-call-for-heading-nodes (d fn terminate-p)
+  (funcall fn d)
   (when (nop-tree-directive-p d)
-    (cl-loop for c in-ref (oref d children)
-             do (nop-call-for-main-nodes c fn (funcall apply-p-fn c) apply-p-fn))
-    (cl-loop for c in-ref (oref d continuations)
-             do (nop-call-for-main-nodes c fn (funcall apply-p-fn c) apply-p-fn))))
+    (unless (funcall terminate-p d)
+      (cl-loop for c in-ref (oref d children)
+               do (nop-call-for-heading-nodes c fn terminate-p))
+      (cl-loop for c in-ref (oref d continuations)
+               do (nop-call-for-heading-nodes c fn terminate-p)))))
 
-(defun nop-toggle-subtree-overlays-placement (directive hide)
-  (nop-call-for-main-nodes
-   directive
-   (lambda (directive) (nop-adjust-node-overlays directive hide))
-   nil ; Never applies to root.
-   #'nop-tree-directive-p))
+(defun nop-toggle-subtree-overlays-placement (directive collapse)
+  (cl-flet ((fn (d) (nop-adjust-node-overlays d collapse))
+            (terminate-p (d)
+              ;; Terminate if directive is a collapsed heading.
+              (when (not (eq :merged (oref d kind)))
+                (overlay-get (oref d head-overlay) 'collapsed))))
+    (cl-loop for c in-ref (oref directive children)
+             do (nop-call-for-heading-nodes c #'fn #'terminate-p))
+    (cl-loop for c in-ref (oref directive continuations)
+             do (nop-call-for-heading-nodes c #'fn #'terminate-p))))
 
-(defun nop-nav-show-node (d)
+(defun nop-nav-expand-node (d)
   (with-slots (kind depth head-overlay) d
     (unless (eq :root kind)
       (let ((title (overlay-get head-overlay 'title))
@@ -871,7 +844,7 @@ If the list has exhausted, continuation is invalid."
             (body (overlay-get head-overlay 'body)))
 
         ;; Property to keep explicit drawer state.
-        (overlay-put head-overlay 'hidden nil)
+        (overlay-put head-overlay 'collapsed nil)
 
         (overlay-put init 'before-string nil)
 
@@ -884,29 +857,34 @@ If the list has exhausted, continuation is invalid."
 
       (nop-toggle-subtree-overlays-placement d nil))))
 
-(defun nop-nav-hide-node (d)
+(defun nop-nav-collapse-node (d)
   (with-slots (kind depth head-overlay) d
     (unless (eq :root kind)
       (let ((title (overlay-get head-overlay 'title))
             (init (overlay-get head-overlay 'init))
             (body (overlay-get head-overlay 'body))
-            (face (elt +nop-ov-shadow-line-faces+ depth)))
+            (face (list (elt +nop-ov-shadow-faces+ depth)
+                        (elt +nop-ov-drawer-faces+ depth))))
 
-        ;; Jump to the beginning of the directive that will be hidden.
+        ;; Jump to the beginning of the directive that will be collapsed.
         (nop-nav-jump-to-directive d)
 
         ;; Property to keep explicit drawer state.
-        (overlay-put head-overlay 'hidden t)
+        (overlay-put head-overlay 'collapsed t)
 
         ;; A blank line is required to maintain correct margins on collapse.
         (overlay-put init 'before-string
                      (propertize (format "%s\N{U+22EF}" (make-string depth ?\s)) 'face face))
 
-        (overlay-put init 'after-string (propertize " " 'face face
-                                                    'display '(space :align-to (- right-margin 25))))
+        (overlay-put init 'after-string
+                     (propertize " " 'face face
+                                 'display '(space :align-to (- right-margin 25))))
 
         ;; Hide body
-        (overlay-put body 'display (propertize (format "%s (%s) \n" kind depth) 'face face))
+        (overlay-put body 'display (propertize
+                                    (format "[ %s ] (%s) \n"
+                                            (upcase (substring (symbol-name kind))) depth)
+                                    'face face))
 
         (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6}))
 
@@ -920,9 +898,9 @@ If the list has exhausted, continuation is invalid."
          (body (overlay-get head 'body))
          (directive (overlay-get head 'directive)))
     (unless (eq :root (oref directive kind))
-      (if (overlay-get head 'hidden)
-          (nop-nav-show-node directive)
-        (nop-nav-hide-node directive)))
+      (if (overlay-get head 'collapsed)
+          (nop-nav-expand-node directive)
+        (nop-nav-collapse-node directive)))
     (message "Overlay   : %s" ov)
     (message "Directive : %s" (oref directive description))))
 
@@ -933,24 +911,24 @@ If the list has exhausted, continuation is invalid."
   (nop-apply-immediate-children fn d)
   (cl-loop for c in (oref d continuations) do (nop-apply-immediate-children fn c)))
 
-(defun nop-nav-show-subtree-with-merged ()
+(defun nop-nav-expand-subtree-with-merged ()
   (interactive)
-  (nop-apply-immediate-children #'nop-nav-show-node (nop-find-hovered-node)))
+  (nop-apply-immediate-children #'nop-nav-expand-node (nop-find-hovered-node)))
 
-(defun nop-nav-show-subtree-skip-merged ()
+(defun nop-nav-expand-subtree-skip-merged ()
   (interactive)
-  (nop-apply-all-children #'nop-nav-show-node (nop-find-hovered-node t)))
+  (nop-apply-all-children #'nop-nav-expand-node (nop-find-hovered-node t)))
 
-(defun nop-nav-hide-subtree-with-merged ()
+(defun nop-nav-collapse-subtree-with-merged ()
   (interactive)
   (let ((d (nop-find-hovered-node)))
-    (nop-apply-immediate-children #'nop-nav-hide-node d)
+    (nop-apply-immediate-children #'nop-nav-collapse-node d)
     (nop-nav-jump-to-directive d)))
 
-(defun nop-nav-hide-subtree-skip-merged ()
+(defun nop-nav-collapse-subtree-skip-merged ()
   (interactive)
   (let ((d (nop-find-hovered-node t)))
-    (nop-apply-all-children #'nop-nav-hide-node d)
+    (nop-apply-all-children #'nop-nav-collapse-node d)
     (nop-nav-jump-to-directive d)))
 
 (defun nop-remove-overlays ()
@@ -961,10 +939,10 @@ If the list has exhausted, continuation is invalid."
 (defconst +nop-box-map+ (define-keymap
                           "<tab>" #'nop-nav-toggle-node-visibility
                           "<mouse-1>" #'nop-nav-toggle-node-visibility
-                          "+" #'nop-nav-show-subtree-with-merged
-                          "C-+" #'nop-nav-show-subtree-skip-merged
-                          "-" #'nop-nav-hide-subtree-with-merged
-                          "C--" #'nop-nav-hide-subtree-skip-merged
+                          "+" #'nop-nav-expand-subtree-with-merged
+                          "C-+" #'nop-nav-expand-subtree-skip-merged
+                          "-" #'nop-nav-collapse-subtree-with-merged
+                          "C--" #'nop-nav-collapse-subtree-skip-merged
                           "q" #'nop-remove-overlays
                           "b" #'beginning-of-buffer
                           "e" #'end-of-buffer
@@ -976,11 +954,12 @@ If the list has exhausted, continuation is invalid."
                           "H" #'nop-nav-home-skip-merged
                           "f" #'nop-nav-jump-forward))
 
-(defun nop-generate-directive-overlay (d)
+(defun nop-generate-title-overlay (d)
   "Generate title overlay for the directive."
   (with-slots (depth positions kind) d
     (let* ((c (eq kind :merged))
-           (h-face (elt (if c +nop-ov-header-faces+ +nop-ov-main-header-faces+) depth))
+           (h-face (list +nop-ov-title-face+
+                         (elt (if c +nop-ov-drawer-faces+ +nop-ov-header-faces+) depth)))
            (sym (if c ?\N{U+25BD} ?\N{U+25BC})))
       (nop-generate-overlay (nop-info-r positions)
                             `((category +nop-overlay-directive+)
@@ -991,13 +970,12 @@ If the list has exhausted, continuation is invalid."
                               (priority 100)
                               (face ,h-face))))))
 
-(defun nop-generate-tree-overlay (bpos epos depth line-prefix header)
+(defun nop-generate-tree-overlay (bpos epos depth &optional line-prefix header)
   "Generate title overlay for the directive."
   (nop-generate-overlay (nop-range :begin bpos :end epos)
                         `((priority ,depth)
-                          (face ,(elt (if header
-                                          +nop-ov-main-header-faces+
-                                        +nop-ov-faces+)
+                          (face ,(elt (if header +nop-ov-header-faces+
+                                        +nop-ov-drawer-faces+)
                                       depth))
                           (keymap ,+nop-box-map+)
                           (category +nop-overlay-tree+)
@@ -1005,10 +983,10 @@ If the list has exhausted, continuation is invalid."
 
 (defun nop-generate-tree-overlays (d max-depth depth-list)
   (with-slots (depth kind positions) d
-    (let* ((m-face (elt +nop-ov-faces+ depth))
-           (title-ov (nop-generate-directive-overlay d)))
+    (let* ((m-face (elt +nop-ov-drawer-faces+ depth))
+           (title-ov (nop-generate-title-overlay d)))
 
-      ;; Create the overlay representing a top-level node, and its continuations.
+      ;; Create the overlay representing a heading node, and its continuations.
       ;; Overlay for the tree directive encompass all continuations.
       ;; So we skip merged directives.
       (unless (eq kind :merged)
@@ -1021,8 +999,8 @@ If the list has exhausted, continuation is invalid."
                  (mpos (1+ (oref positions end))) ; newline should be part of header.
                  (bpos (oref positions begin))
                  (head-ov (nop-generate-tree-overlay bpos mpos depth prefix-h t))
-                 (init-ov (nop-generate-tree-overlay mpos mpos depth prefix nil))
-                 (body-ov (nop-generate-tree-overlay mpos epos depth prefix nil)))
+                 (init-ov (nop-generate-tree-overlay mpos mpos depth))
+                 (body-ov (nop-generate-tree-overlay mpos epos depth prefix)))
             (overlay-put body-ov 'head head-ov)
             (overlay-put head-ov 'head head-ov)
             (overlay-put head-ov 'title title-ov)
@@ -1038,7 +1016,8 @@ If the list has exhausted, continuation is invalid."
   (set-window-buffer (selected-window) (current-buffer))
   (remove-overlays)
   (read-only-mode 1)
-  (fringe-mode 0))
+  (fringe-mode 0)
+  (setf truncate-lines t))
 
 (defun nop-select-overlay-properties (d current-depth)
   (let ((indent (make-string current-depth ?\s)))
@@ -1067,17 +1046,12 @@ If the list has exhausted, continuation is invalid."
   (funcall fn d vdepth max-depth depth-list)
   (when (nop-tree-directive-p d)
     (message "Traversing children of %s" (oref d description))
-    (cl-loop for c in-ref (oref d children) do (nop-call-for-each-node c
-                                                                       max-depth
-                                                                       (cons (oref d depth) depth-list)
-                                                                       fn
-                                                                       (1+ vdepth)))
+    (cl-loop for c in-ref (oref d children)
+             do (nop-call-for-each-node
+                 c max-depth (cons (oref d depth) depth-list) fn (1+ vdepth)))
     (message "Traversing continuations of %s" (oref d description))
-    (cl-loop for c in-ref (oref d continuations) do (nop-call-for-each-node c
-                                                                            max-depth
-                                                                            depth-list
-                                                                            fn
-                                                                            vdepth))))
+    (cl-loop for c in-ref (oref d continuations)
+             do (nop-call-for-each-node c max-depth depth-list fn vdepth))))
 
 (defun nop-narrate-buffer ()
   (interactive)
@@ -1129,7 +1103,7 @@ If the list has exhausted, continuation is invalid."
          (lambda (d vdepth max-depth depth-list)
            (when (nop-tree-directive-p d)
              (unless (eq (oref d kind) :merged)
-               (nop-nav-hide-node d))))))))
+               (nop-nav-collapse-node d))))))))
   (recenter))
 
 ;;

@@ -1,3 +1,159 @@
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=2 et sw=2 tw=80: */
+// [!.. Licence]
+/* Vivamus ac  semper nibh. Sed  pretium est  id lobortis efficitur.  Nulla eget
+ * metus at urna volutpat suscipit vitae at lectus. Fusce nibh lacus, eleifend a
+ * mi  a, lobortis  tempor erat.  Cras luctus  nunc quam,  vitae posuere  tortor
+ * rutrum id. Etiam eu velit vel  sem facilisis efficitur. Praesent non felis in
+ * risus maximus fringilla.  */
+
+// [!.. Info]
+// Cras  aliquet malesuada  eros, sit  amet sagittis  sapien commodo  et. Mauris
+// egestas    arcu    pellentesque    est    tempus,    eget    accumsan    diam
+// ultricies. Vestibulum sed commodo quam.  Vestibulum suscipit justo ac aliquet
+// dignissim.  Phasellus  rutrum mi  vitae  tortor  commodo, vel  tempus  turpis
+// elementum. Maecenas iaculis pulvinar efficitur. Mauris tincidunt suscipit mi,
+// sed  bibendum nulla  lacinia sed.  Nunc sit  amet mi  varius, blandit  lectus
+// vitae, tempor nisi.
+
+// [!.. Code]
+
+// [!0B Includes0]
+// [!1B Includes1]
+// [!2B Includes2]
+// [!3B Includes3]
+// [!4B Includes4]
+// [!5B Includes5]
+// [!6B Includes6]
+// [!7B Includes7]
+// [!8B Includes8]
+// [!9B Includes9]
+#include <assert.h>
+#include <getopt.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <numeric>
+#include <vector>
+
+//---------------------------------------------------------------------------
+// Utilities [!3F]
+//---------------------------------------------------------------------------
+
+static const char* gArgv0;
+
+// Utilities [!8F]
+
+#  include <sys/types.h>
+#  include <sys/sysctl.h>
+
+//---------------------------------------------------------------------------
+// Mac specific code [!1R]
+//---------------------------------------------------------------------------
+
+#if defined(__APPLE__)
+
+#  include <sys/types.h>
+#  include <sys/sysctl.h>
+
+//---------------------------------------------------------------------------
+// Linux specific code [!1R]
+
+#  include <sys/types.h>
+#  include <sys/sysctl.h>
+
+// Linux specific code [!2R]
+//---------------------------------------------------------------------------
+static void printUsage() {
+}
+
+#elif defined(__linux__)
+
+#  include <linux/perf_event.h>
+#  include <sys/syscall.h>
+
+#else
+
+//---------------------------------------------------------------------------
+// Unsupported platforms
+//---------------------------------------------------------------------------
+
+#  error Sorry, this platform is not supported
+
+#endif  // platform
+
+//---------------------------------------------------------------------------
+// The main loop [!1R]
+//---------------------------------------------------------------------------
+static void printUsage() {
+    ...
+}
+
+// [!.. Signals]
+
+static const char* gArgv0;
+// [!2R SIGALRM]
+static void printUsage() {
+    if ( fd == -1 )
+    {
+        exit( EXIT_FAILURE );
+    }
+}
+
+// [!2R SIGINT]
+static void printUsage() {
+    if ( fd == -1 )
+    {
+        exit( EXIT_FAILURE );
+    }
+}
+
+// [!1.]
+// [!7F PrintUsage]
+static void printUsage() {
+    if ( fd == -1 )
+    {
+        exit( EXIT_FAILURE );
+    }
+}
+
+// [!2F Main]
+int main(int argc, char** argv) {
+  // Process command line options. [!5F]
+void
+ doSomething( int fd, MetaData meta )
+{
+    ...
+}
+
+  // [!.. Parse options.]
+void
+ doSomething( int fd, MetaData meta )
+{
+    ...
+}
+
+  // [!3R The update.]
+void
+ doSomething( int fd, MetaData meta )
+{
+    ...
+}
+
+  // Initialize something. [!2.]
+void
+ doSomething( int fd, MetaData meta )
+{
+    ...
+}
+
+  // Install the signal handlers. [!+B]
+void
+ doSomething( int fd, MetaData meta )
+{
+    ...
+}
+
 // [!>2 Lorem ipsum dolor sit amet, consectetur adipiscing elit.]
 
 // [!.. Sed vel condimentum elit, in pulvinar lectus. Mauris dictum felis sodales est venenatis.]
