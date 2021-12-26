@@ -283,7 +283,7 @@ Number of levels that should be expanded on jump at target location.")))
 
 (defclass nop-kind-directive (nop-directive)
 
-  ((kind :initform :root
+  ((kind :initform :default
          :type keyword
          :documentation "
 The role and semantics of directive."))
@@ -601,7 +601,7 @@ If the list has exhausted, continuation is invalid."
 
            else do (push d leaves)
 
-           ;; Assumes at this point we have a single depth left, that collected everything: ROOT
+           ;; Assumes at this point we have a single depth left, that collected everything: DEFAULT
            ;; finally (message "%s" directives)
            finally return (car queue)))
 
@@ -659,14 +659,14 @@ If the list has exhausted, continuation is invalid."
   (nop-gen-faces "nop-ov-drawer-face-"
                  "Drawer content box face for depth %s."
                  (lambda (depth)
-                   (list :background (nop-color depth -.5 '(#xA #xB #xC) '(#xFA #xF4 #xEA))))))
+                   (list :background (nop-color depth -.5 '(#xA #xB #xC) '(#xFD #xF8 #xF0))))))
 
 (defconst +nop-ov-handle-faces+
   (nop-gen-faces "nop-ov-handle-face-"
                  "Drawer handle line face for depth %s."
                  (lambda (depth)
                    (list :overline "black"
-                         :background (nop-color depth .25 '(#xA #xA #x6) '(#xED #xED #xE2))))))
+                         :background (nop-color depth .25 '(#x9 #x9 #x5) '(#xED #xED #xE2))))))
 
 (defconst +nop-ov-shadow-faces+
   (nop-gen-faces "nop-ov-shadow-face-"
@@ -829,7 +829,7 @@ If the list has exhausted, continuation is invalid."
 
 (defun nop-nav-expand-node (d)
   (with-slots (kind depth handle) d
-    (unless (eq :root kind)
+    (unless (eq :default kind)
       (let ((title (overlay-get handle 'title))
             (ellipsis (overlay-get handle 'ellipsis))
             (drawer (overlay-get handle 'drawer)))
@@ -850,7 +850,7 @@ If the list has exhausted, continuation is invalid."
 
 (defun nop-nav-collapse-node (d)
   (with-slots (kind depth handle) d
-    (unless (eq :root kind)
+    (unless (eq :default kind)
       (let ((title (overlay-get handle 'title))
             (ellipsis (overlay-get handle 'ellipsis))
             (drawer (overlay-get handle 'drawer))
@@ -863,7 +863,6 @@ If the list has exhausted, continuation is invalid."
         ;; Property to keep explicit drawer state.
         (overlay-put handle 'collapsed t)
 
-        ;; A blank line is required to maintain correct margins on collapse.
         (overlay-put ellipsis 'before-string
                      (propertize (format "%s\N{U+22EF}" (make-string depth ?\s)) 'face face))
 
@@ -872,6 +871,7 @@ If the list has exhausted, continuation is invalid."
                                  'display '(space :align-to (- right-margin 25))))
 
         ;; Hide drawer
+        ;; A blank line is required to maintain correct margins on collapse.
         (overlay-put drawer 'display (propertize
                                       (format "[ %s ] (%s) \n"
                                               (upcase (substring (symbol-name kind))) depth)
@@ -890,10 +890,9 @@ If the list has exhausted, continuation is invalid."
          (handle (overlay-get ov 'handle))
          (drawer (overlay-get handle 'drawer))
          (directive (overlay-get handle 'directive)))
-    (unless (eq :root (oref directive kind))
-      (if (overlay-get handle 'collapsed)
-          (nop-nav-expand-node directive)
-        (nop-nav-collapse-node directive)))
+    (if (overlay-get handle 'collapsed)
+        (nop-nav-expand-node directive)
+      (nop-nav-collapse-node directive))
     (message "Overlay   : %s" ov)
     (message "Directive : %s" (oref directive description))))
 
@@ -986,14 +985,14 @@ If the list has exhausted, continuation is invalid."
         (seq-let [prefix prefix-h]
             (nop-generate-margin-strings max-depth (cons depth depth-list))
           (let* ((enode (nop-get-last-node-of-subtree d))
-                 (epos (if (oref enode next-node)
-                           (oref (oref (oref enode next-node) positions) begin)
-                         (buffer-end 1)))
-                 (mpos (1+ (oref positions end))) ; newline should be part of handle.
-                 (bpos (oref positions begin))
-                 (handle (nop-generate-tree-overlay bpos mpos depth prefix-h t))
-                 (ellipsis (nop-generate-tree-overlay mpos mpos depth))
-                 (drawer (nop-generate-tree-overlay mpos epos depth prefix)))
+                 (bgn-pos (oref positions begin))
+                 (mid-pos (1+ (oref positions end))) ; newline should be part of handle.
+                 (end-pos (if (oref enode next-node)
+                              (oref (oref (oref enode next-node) positions) begin)
+                            (buffer-end 1)))
+                 (handle (nop-generate-tree-overlay bgn-pos mid-pos depth prefix-h t))
+                 (ellipsis (nop-generate-tree-overlay mid-pos mid-pos depth))
+                 (drawer (nop-generate-tree-overlay mid-pos end-pos depth prefix)))
             (overlay-put drawer 'handle handle)
             (overlay-put handle 'handle handle)
             (overlay-put handle 'title title)
@@ -1051,11 +1050,11 @@ If the list has exhausted, continuation is invalid."
   "Processes the whole buffer, and creates the initial list of blocks."
   (save-excursion
     (goto-char (point-min))
-    (let* ((root (make-instance 'nop-tree-directive))
-           (directives (list root))
+    (let* ((default (make-instance 'nop-tree-directive))
+           (directives (list default))
            (max-depth 0))
 
-      (oset root description (format "Root: %s" (buffer-name)))
+      (oset default description (format "Default: %s" (buffer-name)))
 
       ;; Buffer analysis pass: Generates directives.
       (while (re-search-forward "/[/*]" nil t)
@@ -1096,7 +1095,12 @@ If the list has exhausted, continuation is invalid."
          (lambda (d vdepth max-depth depth-list)
            (when (nop-tree-directive-p d)
              (unless (eq (oref d kind) :merged)
-               (nop-nav-collapse-node d))))))))
+               (nop-nav-collapse-node d)))))
+
+        ;; In order to avoid special-casing the default everywhere, simply detach
+        ;; the default title and handle overlays in the end.
+        (delete-overlay (overlay-get (oref default handle) 'title))
+        (delete-overlay (oref default handle)))))
   (recenter))
 
 ;;
