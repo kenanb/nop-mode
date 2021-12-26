@@ -251,13 +251,11 @@ It can still decide that the contents are invalid, and return nil."
           (nop-debug-range (nop-dspec-r positions))
           (nop-debug-range (nop-info-r positions))))
 
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Directive
 ;;
 ;;
-
 
 (defclass nop-directive ()
   ((description :initform "No description"
@@ -337,6 +335,11 @@ Arbitrary attributes associated with the directive.")))
          :documentation "
 The identifier of the label.")))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Debug Printing
+;;
+;;
 
 (cl-defmethod nop-debug ((d nop-directive))
   (format "< %-15s: %s\n%s\n>" "Directive" (type-of d)
@@ -387,6 +390,11 @@ The identifier of the label.")))
                                      (oref d expansion))
                        (cl-call-next-method)))))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Directive Parsing
+;;
+;;
 
 (cl-defgeneric nop-process-extra-info (directive info-string)
 
@@ -443,12 +451,6 @@ The identifier of the label.")))
          (type-of directive)
          directive))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Buffer processing
-;;
-;;
-
 (defun nop-generate-directive (positions)
   (let* ((c (nop-type-char positions))
          (directive (cl-case c
@@ -503,10 +505,9 @@ Leaves cursor at the end of comment. Assumes cursor is looking at comment-positi
     ((and (pred keywordp) kw) (message (plist-get +directive-search-messages+ kw)) nil)
     (positions (nop-generate-directive positions))))
 
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Directive merge
+;;; Directive Merge
 ;;
 ;;
 
@@ -605,10 +606,9 @@ If the list has exhausted, continuation is invalid."
            ;; finally (message "%s" directives)
            finally return (car queue)))
 
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Depth propagation
+;;; Depth Propagation
 ;;
 ;;
 
@@ -625,10 +625,9 @@ If the list has exhausted, continuation is invalid."
                        (:dec (1- base)))
                 depth base))))))
 
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Overlay selection
+;;; Overlay Generation
 ;;
 ;;
 
@@ -730,6 +729,12 @@ If the list has exhausted, continuation is invalid."
   (eq '+nop-overlay-tree+
       (overlay-get ov 'category)))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Navigation Commands
+;;
+;;
+
 (defun nop-nav-jump-to-directive (d)
   (goto-char (oref (nop-info-r (oref d positions)) begin)))
 
@@ -805,6 +810,12 @@ If the list has exhausted, continuation is invalid."
 (defun nop-nav-step-backward-from-head ()
   (interactive)
   (nop-nav-step t t))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Visibility Adjustment
+;;
+;;
 
 (defun nop-recurse-for-subtree (recurse-fn d &rest args)
   (cl-loop for c in-ref (oref d children) do (apply recurse-fn c args))
@@ -896,6 +907,12 @@ If the list has exhausted, continuation is invalid."
     (message "Overlay   : %s" ov)
     (message "Directive : %s" (oref directive description))))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Visibility Commands
+;;
+;;
+
 (defun nop-apply-immediate-children (fn d)
   (cl-loop for c in (oref d children) do (funcall fn c)))
 
@@ -928,6 +945,12 @@ If the list has exhausted, continuation is invalid."
   (read-only-mode -1)
   (remove-overlays))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Keymap
+;;
+;;
+
 (defconst +nop-box-map+ (define-keymap
                           "<tab>" #'nop-nav-toggle-node-visibility
                           "<mouse-1>" #'nop-nav-toggle-node-visibility
@@ -945,6 +968,22 @@ If the list has exhausted, continuation is invalid."
                           "h" #'nop-nav-home-from-body
                           "H" #'nop-nav-home-from-head
                           "f" #'nop-nav-jump-forward))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Overlay Generation
+;;
+;;
+
+(defun nop-prepare-for-overlay (max-width)
+  (let ((margin-width (* (1+ max-depth) +nop-ov-margin-block-width+)))
+    ;; (setf left-margin-width margin-width)
+    (setf right-margin-width margin-width))
+  (set-window-buffer (selected-window) (current-buffer))
+  (remove-overlays)
+  (read-only-mode 1)
+  (fringe-mode 0)
+  (setf truncate-lines t))
 
 (defun nop-generate-title-overlay (d)
   "Generate title overlay for the directive."
@@ -1001,16 +1040,6 @@ If the list has exhausted, continuation is invalid."
             (overlay-put handle 'directive d)
             (oset d handle handle)))))))
 
-(defun nop-prepare-for-overlay (max-width)
-  (let ((margin-width (* (1+ max-depth) +nop-ov-margin-block-width+)))
-    ;; (setf left-margin-width margin-width)
-    (setf right-margin-width margin-width))
-  (set-window-buffer (selected-window) (current-buffer))
-  (remove-overlays)
-  (read-only-mode 1)
-  (fringe-mode 0)
-  (setf truncate-lines t))
-
 (defun nop-select-overlay-properties (d current-depth)
   (let ((indent (make-string current-depth ?\s)))
     ;; higher is higher priority
@@ -1026,7 +1055,6 @@ If the list has exhausted, continuation is invalid."
                 (t
                  '((help-echo "OTHER")
                    (face mode-line-highlight)))))))
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
