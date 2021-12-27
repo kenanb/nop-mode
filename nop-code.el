@@ -17,13 +17,35 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Face Definitions
+;;
+;;
+
+(defface nop-code-base '((t :foreground "gainsboro"))
+  "Default face for highlighting an overlay in nop-mode."
+  :version "0.1"
+  :group 'nop-overlay)
+
+(setplist 'nop--code-overlay '(face nop-code-base display "[!]"))
+(defconst nop--code-overlay '((category nop--code-overlay)))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Nop Code Enable / Disable
 ;;
 ;;
 
-(defun nop--code-enable ())
+(defun nop--code-enable ()
+  "Generates [!] markers replacing the actual nop directives."
+  (dolist (d (nop--parse-buffer))
+    (nop--call-for-each-node
+     (lambda (d depth-list)
+       (nop--generate-overlay (nop--outer-r (oref d positions))
+                              nop--code-overlay))
+     d)))
 
-(defun nop--code-disable ())
+(defun nop--code-disable ()
+  (remove-overlays))
 
 ;;
 ;;

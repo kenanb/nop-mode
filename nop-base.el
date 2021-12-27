@@ -641,6 +641,42 @@ If the list has exhausted, continuation is invalid."
                        (:dec (1- base)))
                 depth base))))))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Buffer processing
+;;
+;;
+
+(cl-defun nop--call-for-each-node (fn d &optional depth-list args)
+  (apply fn d depth-list args)
+  (when (nop--tree-directive-p d)
+    ;; (message "Traversing children of %s" (oref d description))
+    (cl-loop for c in-ref (oref d children)
+             do (nop--call-for-each-node
+                 fn c (cons (oref d depth) depth-list) args))
+    ;; (message "Traversing continuations of %s" (oref d description))
+    (cl-loop for c in-ref (oref d continuations)
+             do (nop--call-for-each-node fn c depth-list args))))
+
+(defun nop--parse-buffer ()
+  "Processes the whole buffer, and creates the initial list of blocks."
+  (save-excursion
+    (goto-char (point-min))
+    (let* ((default (make-instance 'nop--tree-directive))
+           (directives (list default)))
+
+      (oset default description (format "Default: %s" (buffer-name)))
+
+      ;; Buffer analysis pass: Generates directives.
+      (while (re-search-forward "/[/*]" nil t)
+        (when-let ((d (nop--search-directive-in-comment)))
+          ;; Populated list is reverse of buffer order.
+          (push d directives)))
+
+      (nop--propagate-tree-directive-depths directives)
+
+      (nop--merge directives))))
+
 ;;
 ;;
 ;;;;;;;;;;;;;;;;;;;;

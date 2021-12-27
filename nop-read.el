@@ -346,7 +346,7 @@
 ;;
 ;;
 
-(defun nop--prepare-for-overlay (max-width)
+(defun nop--before-read-overlays (max-width)
   (let ((margin-width (* (1+ max-depth) nop--ov-margin-block-width)))
     ;; (setf left-margin-width margin-width)
     (setf right-margin-width margin-width))
@@ -410,7 +410,7 @@
             (overlay-put handle 'directive d)
             (oset d handle handle)))))))
 
-(defun nop--select-overlay-properties (d current-depth)
+(defun nop--read-overlay-properties (d current-depth)
   (let ((indent (make-string current-depth ?\s)))
     ;; higher is higher priority
     (cons '(priority 100)
@@ -432,78 +432,59 @@
 ;;
 ;;
 
-(cl-defun nop--call-for-each-node (d max-depth depth-list fn &optional (vdepth 0))
-  (funcall fn d vdepth max-depth depth-list)
-  (when (nop--tree-directive-p d)
-    ;; (message "Traversing children of %s" (oref d description))
-    (cl-loop for c in-ref (oref d children)
-             do (nop--call-for-each-node
-                 c max-depth (cons (oref d depth) depth-list) fn (1+ vdepth)))
-    ;; (message "Traversing continuations of %s" (oref d description))
-    (cl-loop for c in-ref (oref d continuations)
-             do (nop--call-for-each-node c max-depth depth-list fn vdepth))))
+(defun nop--read-enable (&optional collapsed)
+  "Generates nested drawer overlays for nop directives. Buffer is read-only."
+  (let* ((merged (nop--parse-buffer))
+         (default (car merged))
+         (max-depth 0))
 
-(defun nop--read-enable ()
-  "Processes the whole buffer, and creates the initial list of blocks."
-  (save-excursion
-    (goto-char (point-min))
-    (let* ((default (make-instance 'nop--tree-directive))
-           (directives (list default))
-           (max-depth 0))
+    (dolist (d merged)
+      (setf max-depth (max max-depth (plist-get (oref d arbitrary) :max-depth))))
 
-      (oset default description (format "Default: %s" (buffer-name)))
+    (nop--before-read-overlays max-depth)
 
-      ;; Buffer analysis pass: Generates directives.
-      (while (re-search-forward "/[/*]" nil t)
-        (when-let ((d (nop--search-directive-in-comment)))
-          ;; Populated list is reverse of buffer order.
-          (push d directives)))
+    (dolist (d merged)
+      (nop--call-for-each-node
+       (lambda (d depth-list max-depth)
+         ;; (message "Applying fn to %s - %s" (oref d depth) (oref d description))
+         (if (nop--tree-directive-p d)
+             (nop--generate-tree-overlays d max-depth depth-list)
+           (nop--generate-overlay (nop--info-r (oref d positions))
+                                  (nop--read-overlay-properties d (elt depth-list 0))))
 
-      (nop--propagate-tree-directive-depths directives)
+         (nop--generate-overlay (nop--indent-r (oref d positions))
+                                nop--overlay-invisible)
+         (nop--generate-overlay (nop--cprefix-r (oref d positions))
+                                nop--overlay-invisible)
+         (nop--generate-overlay (nop--dspec-r (oref d positions))
+                                nop--overlay-invisible)
+         (nop--generate-overlay (nop--dprefix-r (oref d positions))
+                                nop--overlay-invisible)
+         (nop--generate-overlay (nop--dsuffix-r (oref d positions))
+                                nop--overlay-invisible))
+       d nil (list max-depth))
 
-      (dolist (d (nop--merge directives))
-        (setf max-depth (max max-depth (plist-get (oref d arbitrary) :max-depth))))
-
-      (nop--prepare-for-overlay max-depth)
-
-      (dolist (d (nop--merge directives))
+      (when collapsed
         (nop--call-for-each-node
-         d max-depth nil
-         (lambda (d vdepth max-depth depth-list)
-           ;; (message "Applying fn to %s - %s" vdepth (oref d description))
-           (if (nop--tree-directive-p d)
-               (nop--generate-tree-overlays d max-depth depth-list)
-             (nop--generate-overlay (nop--info-r (oref d positions))
-                                    (nop--select-overlay-properties d (elt depth-list 0))))
-
-           (nop--generate-overlay (nop--indent-r (oref d positions))
-                                  nop--overlay-invisible)
-           (nop--generate-overlay (nop--cprefix-r (oref d positions))
-                                  nop--overlay-invisible)
-           (nop--generate-overlay (nop--dspec-r (oref d positions))
-                                  nop--overlay-invisible)
-           (nop--generate-overlay (nop--dprefix-r (oref d positions))
-                                  nop--overlay-invisible)
-           (nop--generate-overlay (nop--dsuffix-r (oref d positions))
-                                  nop--overlay-invisible)))
-
-        (nop--call-for-each-node
-         d max-depth nil
-         (lambda (d vdepth max-depth depth-list)
+         (lambda (d depth-list)
            (when (nop--tree-directive-p d)
              (unless (eq (oref d kind) :merged)
-               (nop--nav-collapse-node d)))))
+               (nop--nav-collapse-node d))))
+         d))
 
-        ;; In order to avoid special-casing the default everywhere, simply detach
-        ;; the default title and handle overlays in the end.
-        (delete-overlay (overlay-get (oref default handle) 'title))
-        (delete-overlay (oref default handle)))))
-  (recenter))
+      ;; In order to avoid special-casing the default everywhere, simply detach
+      ;; the default title and handle overlays in the end.
+      (delete-overlay (overlay-get (oref default handle) 'title))
+      (delete-overlay (oref default handle))))
+
+  (when collapsed
+    (recenter)))
 
 (defun nop--read-disable ()
-  (save-excursion
-    (remove-overlays))
-  (recenter))
+  (remove-overlays)
+  (read-only-mode -1)
+  ;; (recenter)
+  )
 
 ;;
 ;;
