@@ -518,24 +518,6 @@
 ;;
 ;;
 
-(defconst +nop-box-map+ (define-keymap
-                          "<tab>" #'nop-nav-toggle-node-visibility
-                          "<mouse-1>" #'nop-nav-toggle-node-visibility
-                          "+" #'nop-nav-expand-subtree-from-body
-                          "C-+" #'nop-nav-expand-subtree-from-head
-                          "-" #'nop-nav-collapse-subtree-from-body
-                          "C--" #'nop-nav-collapse-subtree-from-head
-                          "q" #'nop-remove-overlays
-                          "b" #'beginning-of-buffer
-                          "e" #'end-of-buffer
-                          "n" #'nop-nav-step-forward-from-body
-                          "N" #'nop-nav-step-forward-from-head
-                          "p" #'nop-nav-step-backward-from-body
-                          "P" #'nop-nav-step-backward-from-head
-                          "h" #'nop-nav-home-from-body
-                          "H" #'nop-nav-home-from-head
-                          "f" #'nop-nav-jump-forward))
-
 ;;;###autoload
 (define-minor-mode nop-read-mode
   "Toggle Nop mode."
@@ -544,7 +526,24 @@
   ;; The indicator for the mode line.
   :lighter " Nop-Read"
   ;; The minor mode bindings.
-  :keymap +nop-box-map+
+  :keymap (let ((map (make-sparse-keymap)))
+            (define-key map (kbd "<tab>") #'nop-nav-toggle-node-visibility)
+            (define-key map (kbd "<mouse-1>") #'nop-nav-toggle-node-visibility)
+            (define-key map (kbd "+") #'nop-nav-expand-subtree-from-body)
+            (define-key map (kbd "C-+") #'nop-nav-expand-subtree-from-head)
+            (define-key map (kbd "-") #'nop-nav-collapse-subtree-from-body)
+            (define-key map (kbd "C--") #'nop-nav-collapse-subtree-from-head)
+            (define-key map (kbd "q") #'nop-remove-overlays)
+            (define-key map (kbd "b") #'beginning-of-buffer)
+            (define-key map (kbd "e") #'end-of-buffer)
+            (define-key map (kbd "n") #'nop-nav-step-forward-from-body)
+            (define-key map (kbd "N") #'nop-nav-step-forward-from-head)
+            (define-key map (kbd "p") #'nop-nav-step-backward-from-body)
+            (define-key map (kbd "P") #'nop-nav-step-backward-from-head)
+            (define-key map (kbd "h") #'nop-nav-home-from-body)
+            (define-key map (kbd "H") #'nop-nav-home-from-head)
+            (define-key map (kbd "f") #'nop-nav-jump-forward)
+	        map)
   :group 'nop-read
   (if nop-read-mode (nop-read-enable) (nop-read-disable)))
 
