@@ -518,7 +518,8 @@ Assumes cursor is looking at comment-position."
   "Possibly generates a directive using the comment at current position.
 Leaves cursor at the end of comment. Assumes cursor is looking at comment-position."
   (pcase (nop--generate-directive-positions)
-    ((and (pred keywordp) kw) (message (plist-get directive-search-messages kw)) nil)
+    ((and (pred keywordp) kw) ; (message (plist-get directive-search-messages kw))
+     nil)
     (positions (nop--generate-directive positions))))
 
 
@@ -546,10 +547,14 @@ If the list has exhausted, continuation is invalid."
       (:continue
        (setf kind :ignore)
        (pcase (nop--merge-continue source (cdr directives))
-         (:scope-exit (message "ERROR: [INVALID CONTINUATION] No head node at given depth: %s\n"
-                               description) nil)
-         (:exhausted  (message "ERROR: [INVALID CONTINUATION] Exhausted directives: %s\n"
-                               description) nil)
+         (:scope-exit
+          ;; (message "ERROR: [INVALID CONTINUATION] No head node at given depth: %s\n"
+          ;;          description)
+          nil)
+         (:exhausted
+          ;; (message "ERROR: [INVALID CONTINUATION] Exhausted directives: %s\n"
+          ;;          description)
+          nil)
          ((pred null) nil)
          ;; Mark current entry as merged, only if the nested lookup succeeded.
          (result (setf kind :merged)
