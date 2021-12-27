@@ -36,7 +36,7 @@
   (cond
    (nop-code-mode (nop-code-mode -1) (nop-mark-mode 1))
    (nop-mark-mode (nop-mark-mode -1) (nop-read-mode 1))
-   (nop-read-mode (nop-read-mode -1))
+   (nop-read-mode (nop-read-mode -1) (nop-code-mode 1))
    (t (nop-code-mode 1))))
 
 ;;;###autoload
@@ -50,7 +50,12 @@
   :keymap (let ((map (make-sparse-keymap)))
             (define-key map (kbd "C-c !") 'nop-cycle-modes)
             map)
-  :group 'nop)
+  :group 'nop
+  (if nop-mode (nop-cycle-modes)
+    (cond
+     (nop-code-mode (nop-code-mode -1))
+     (nop-mark-mode (nop-mark-mode -1))
+     (nop-read-mode (nop-read-mode -1)))))
 
 ;;;###autoload
 (define-globalized-minor-mode global-nop-mode
