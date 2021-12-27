@@ -21,9 +21,9 @@
 ;;
 ;;
 
-(defun nop-mark-enable ())
+(defun nop--mark-enable ())
 
-(defun nop-mark-disable ())
+(defun nop--mark-disable ())
 
 ;;
 ;;
@@ -45,7 +45,7 @@
   :keymap (let ((map (make-sparse-keymap)))
             map)
   :group 'nop
-  (if nop-mark-mode (nop-mark-enable) (nop-mark-disable)))
+  (if nop-mark-mode (nop--mark-enable) (nop--mark-disable)))
 
 ;;;;;;;;;;;;;;;;;;;;;
 ;;; Nop Provide
