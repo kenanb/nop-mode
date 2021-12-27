@@ -145,11 +145,17 @@
         (nop-get-last-node-of-subtree last-child-node)
       last-top-level)))
 
+(defun nop-get-nearest-handle ()
+  ;; The last overlay ends at buffer-end. Look behind if point is at point-max.
+  (let* ((p (if (eq (point) (point-max)) (1- (point)) (point)))
+         (ov (cl-find-if 'nop-tree-overlay-p (overlays-at p t))))
+    ;; (message "Overlay : %s" ov)
+    (overlay-get ov 'handle)))
+
 (defun nop-nav-jump-forward ()
   (interactive)
-  (let* ((overlays (overlays-at (point) t))
-         (ov (cl-find-if 'nop-tree-overlay-p overlays))
-         (handle (overlay-get ov 'handle))
+  ;; No overlay at the end of buffer.
+  (let* ((handle (nop-get-nearest-handle))
          (directive (overlay-get handle 'directive))
          (fwd-node (oref (nop-get-last-node-of-subtree directive) next-node))
 
@@ -160,9 +166,7 @@
   (recenter))
 
 (defun nop-find-hovered-node (&optional from-head)
-  (let* ((overlays (overlays-at (point) t))
-         (ov (cl-find-if 'nop-tree-overlay-p overlays))
-         (handle (overlay-get ov 'handle))
+  (let* ((handle (nop-get-nearest-handle))
          (directive (overlay-get handle 'directive)))
     (if from-head directive
       (cl-loop with p = (point)
@@ -293,16 +297,13 @@
 
 (defun nop-nav-toggle-node-visibility ()
   (interactive)
-  (let* ((overlays (overlays-at (point) t))
-         (ov (cl-find-if 'nop-tree-overlay-p overlays))
-         (handle (overlay-get ov 'handle))
+  (let* ((handle (nop-get-nearest-handle))
          (drawer (overlay-get handle 'drawer))
          (directive (overlay-get handle 'directive)))
+    ;; (message "Directive : %s" (oref directive description))
     (if (overlay-get handle 'collapsed)
         (nop-nav-expand-node directive)
-      (nop-nav-collapse-node directive))
-    (message "Overlay   : %s" ov)
-    (message "Directive : %s" (oref directive description))))
+      (nop-nav-collapse-node directive))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
@@ -344,30 +345,6 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Keymap
-;;
-;;
-
-(defconst +nop-box-map+ (define-keymap
-                          "<tab>" #'nop-nav-toggle-node-visibility
-                          "<mouse-1>" #'nop-nav-toggle-node-visibility
-                          "+" #'nop-nav-expand-subtree-from-body
-                          "C-+" #'nop-nav-expand-subtree-from-head
-                          "-" #'nop-nav-collapse-subtree-from-body
-                          "C--" #'nop-nav-collapse-subtree-from-head
-                          "q" #'nop-remove-overlays
-                          "b" #'beginning-of-buffer
-                          "e" #'end-of-buffer
-                          "n" #'nop-nav-step-forward-from-body
-                          "N" #'nop-nav-step-forward-from-head
-                          "p" #'nop-nav-step-backward-from-body
-                          "P" #'nop-nav-step-backward-from-head
-                          "h" #'nop-nav-home-from-body
-                          "H" #'nop-nav-home-from-head
-                          "f" #'nop-nav-jump-forward))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Overlay Generation
 ;;
 ;;
@@ -405,7 +382,6 @@
                           (face ,(elt (if handle +nop-ov-handle-faces+
                                         +nop-ov-drawer-faces+)
                                       depth))
-                          (keymap ,+nop-box-map+)
                           (category +nop-overlay-tree+)
                           (line-prefix ,line-prefix))))
 
@@ -462,11 +438,11 @@
 (cl-defun nop-call-for-each-node (d max-depth depth-list fn &optional (vdepth 0))
   (funcall fn d vdepth max-depth depth-list)
   (when (nop-tree-directive-p d)
-    (message "Traversing children of %s" (oref d description))
+    ;; (message "Traversing children of %s" (oref d description))
     (cl-loop for c in-ref (oref d children)
              do (nop-call-for-each-node
                  c max-depth (cons (oref d depth) depth-list) fn (1+ vdepth)))
-    (message "Traversing continuations of %s" (oref d description))
+    ;; (message "Traversing continuations of %s" (oref d description))
     (cl-loop for c in-ref (oref d continuations)
              do (nop-call-for-each-node c max-depth depth-list fn vdepth))))
 
@@ -498,6 +474,7 @@
         (nop-call-for-each-node
          d max-depth nil
          (lambda (d vdepth max-depth depth-list)
+           ;; (message "Applying fn to %s - %s" vdepth (oref d description))
            (if (nop-tree-directive-p d)
                (nop-generate-tree-overlays d max-depth depth-list)
              (nop-generate-overlay (nop-info-r (oref d positions))
@@ -512,8 +489,7 @@
            (nop-generate-overlay (nop-dprefix-r (oref d positions))
                                  +nop-overlay-invisible+)
            (nop-generate-overlay (nop-dsuffix-r (oref d positions))
-                                 +nop-overlay-invisible+)
-           (message "Applied fn to %s - %s" vdepth (oref d description))))
+                                 +nop-overlay-invisible+)))
 
         (nop-call-for-each-node
          d max-depth nil
@@ -542,6 +518,24 @@
 ;;
 ;;
 
+(defconst +nop-box-map+ (define-keymap
+                          "<tab>" #'nop-nav-toggle-node-visibility
+                          "<mouse-1>" #'nop-nav-toggle-node-visibility
+                          "+" #'nop-nav-expand-subtree-from-body
+                          "C-+" #'nop-nav-expand-subtree-from-head
+                          "-" #'nop-nav-collapse-subtree-from-body
+                          "C--" #'nop-nav-collapse-subtree-from-head
+                          "q" #'nop-remove-overlays
+                          "b" #'beginning-of-buffer
+                          "e" #'end-of-buffer
+                          "n" #'nop-nav-step-forward-from-body
+                          "N" #'nop-nav-step-forward-from-head
+                          "p" #'nop-nav-step-backward-from-body
+                          "P" #'nop-nav-step-backward-from-head
+                          "h" #'nop-nav-home-from-body
+                          "H" #'nop-nav-home-from-head
+                          "f" #'nop-nav-jump-forward))
+
 ;;;###autoload
 (define-minor-mode nop-read-mode
   "Toggle Nop mode."
@@ -550,8 +544,7 @@
   ;; The indicator for the mode line.
   :lighter " Nop-Read"
   ;; The minor mode bindings.
-  :keymap (let ((map (make-sparse-keymap)))
-            map)
+  :keymap +nop-box-map+
   :group 'nop-read
   (if nop-read-mode (nop-read-enable) (nop-read-disable)))
 
