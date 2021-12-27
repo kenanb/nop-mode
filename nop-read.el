@@ -520,7 +520,7 @@
 
 ;;;###autoload
 (define-minor-mode nop-read-mode
-  "Toggle Nop mode."
+  "Toggle Nop-Read mode."
   ;; The initial value.
   :init-value nil
   ;; The indicator for the mode line.

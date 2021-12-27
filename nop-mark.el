@@ -36,7 +36,7 @@
 
 ;;;###autoload
 (define-minor-mode nop-mark-mode
-  "Toggle Nop mode."
+  "Toggle Nop-Mark mode."
   ;; The initial value.
   :init-value nil
   ;; The indicator for the mode line.

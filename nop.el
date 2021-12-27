@@ -31,21 +31,6 @@
 ;;
 ;;
 
-;; (defun nop-cycle-modes ()
-;;   (interactive)
-;;   (let ((active (mapcar #'car minor-mode-alist)))
-;;     (cond
-;;      ((member 'nop-code-mode active)
-;;       (nop-code-mode -1)
-;;       (nop-mark-mode 1))
-;;      ((member 'nop-mark-mode active)
-;;       (nop-mark-mode -1)
-;;       (nop-read-mode 1))
-;;      ((member 'nop-read-mode active)
-;;       (nop-read-mode -1))
-;;      (t
-;;       (nop-code-mode 1)))))
-
 (defun nop-cycle-modes ()
   (interactive)
   (cond
