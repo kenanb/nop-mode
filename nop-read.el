@@ -346,16 +346,6 @@
 ;;
 ;;
 
-(defun nop--before-read-overlays (max-width)
-  (let ((margin-width (* (1+ max-depth) nop--ov-margin-block-width)))
-    ;; (setf left-margin-width margin-width)
-    (setf right-margin-width margin-width))
-  (set-window-buffer (selected-window) (current-buffer))
-  (remove-overlays)
-  (read-only-mode 1)
-  (fringe-mode 0)
-  (setf truncate-lines t))
-
 (defun nop--generate-title-overlay (d)
   "Generate title overlay for the directive."
   (with-slots (depth positions kind) d
@@ -432,6 +422,35 @@
 ;;
 ;;
 
+;; (defvar-local nop--left-margin-width-copy nil)
+(defvar-local nop--right-margin-width-copy nil)
+(defvar-local nop--fringe-mode-copy nil)
+(defvar-local nop--truncate-lines-copy nil)
+(defvar-local nop--buffer-read-only-copy nil)
+
+(defun nop--before-read-mode (max-depth)
+  (let ((margin-width (* (1+ max-depth) nop--ov-margin-block-width)))
+    ;; (cl-shiftf nop--left-margin-width-copy left-margin-width margin-width)
+    (cl-shiftf nop--right-margin-width-copy right-margin-width margin-width))
+  ;; Necessary to activate margin width change.
+  (set-window-buffer (selected-window) (current-buffer))
+  (remove-overlays)
+  (setf nop--buffer-read-only-copy buffer-read-only)
+  (read-only-mode 1)
+  (setf nop--fringe-mode-copy fringe-mode)
+  (fringe-mode 0)
+  (cl-shiftf nop--truncate-lines-copy truncate-lines t))
+
+(defun nop--after-read-mode ()
+  ;; (setf left-margin-width nop--left-margin-width-copy)
+  (setf right-margin-width nop--right-margin-width-copy)
+  ;; Necessary to activate margin width change.
+  (set-window-buffer (selected-window) (current-buffer))
+  (remove-overlays)
+  (unless nop--buffer-read-only-copy (read-only-mode -1))
+  (fringe-mode nop--fringe-mode-copy)
+  (setf truncate-lines nop--truncate-lines-copy))
+
 (defun nop--read-enable (&optional collapsed)
   "Generates nested drawer overlays for nop directives. Buffer is read-only."
   (let* ((merged (nop--parse-buffer))
@@ -441,7 +460,7 @@
     (dolist (d merged)
       (setf max-depth (max max-depth (plist-get (oref d arbitrary) :max-depth))))
 
-    (nop--before-read-overlays max-depth)
+    (nop--before-read-mode max-depth)
 
     (dolist (d merged)
       (nop--call-for-each-node
@@ -481,10 +500,7 @@
     (recenter)))
 
 (defun nop--read-disable ()
-  (remove-overlays)
-  (read-only-mode -1)
-  ;; (recenter)
-  )
+  (nop--after-read-mode))
 
 ;;
 ;;
