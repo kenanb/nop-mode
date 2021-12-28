@@ -15,16 +15,21 @@
 
 ;;; Code:
 
-;;;;;;;;;;;;;;;;
-;;; Dependencies
+;;
+;;
+;;;
+;;; Dependencies
+;;;
 ;;
 ;;
 
 (require 'nop-base)
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Face Definitions
+;;
+;;
+;;;
+;;; Face Definitions
+;;;
 ;;
 ;;
 
@@ -62,9 +67,11 @@
                   (lambda (depth)
                     (list :foreground (nop--color depth .25 '(7 7 7) '(#x9E #x9E #x9E))))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Overlay Generation
+;;
+;;
+;;;
+;;; Overlay Generation
+;;;
 ;;
 ;;
 
@@ -115,9 +122,11 @@
   (eq 'nop--overlay-tree
       (overlay-get ov 'category)))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Navigation Commands
+;;
+;;
+;;;
+;;; Navigation Commands
+;;;
 ;;
 ;;
 
@@ -201,9 +210,11 @@
   (interactive)
   (nop--nav-step t t))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Visibility Adjustment
+;;
+;;
+;;;
+;;; Visibility Adjustment
+;;;
 ;;
 ;;
 
@@ -294,9 +305,11 @@
         (nop--nav-expand-node directive)
       (nop--nav-collapse-node directive))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Visibility Commands
+;;
+;;
+;;;
+;;; Visibility Commands
+;;;
 ;;
 ;;
 
@@ -340,9 +353,11 @@
   (read-only-mode -1)
   (remove-overlays))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Overlay Generation
+;;
+;;
+;;;
+;;; Overlay Generation
+;;;
 ;;
 ;;
 
@@ -416,9 +431,11 @@
                  '((help-echo "OTHER")
                    (face mode-line-highlight)))))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Nop Mark Enable / Disable
+;;
+;;
+;;;
+;;; Nop Read Enable / Disable
+;;;
 ;;
 ;;
 
@@ -504,10 +521,9 @@
 
 ;;
 ;;
-;;;;;;;;;;;;;;;;;;;;
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Nop Read Minor Mode
+;;;
+;;; Nop Read Minor Mode
+;;;
 ;;
 ;;
 
@@ -540,8 +556,11 @@
   :group 'nop-read
   (if nop-read-mode (nop--read-enable) (nop--read-disable)))
 
-;;;;;;;;;;;;;;;;;;;;;
-;;; Nop Provide
+;;
+;;
+;;;
+;;; Nop Read Provide
+;;;
 ;;
 ;;
 

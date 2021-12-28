@@ -8,8 +8,11 @@
 
 ;;; Code:
 
-;;;;;;;;;;;;;;;;
-;;; Dependencies
+;;
+;;
+;;;
+;;; Dependencies
+;;;
 ;;
 ;;
 
@@ -25,9 +28,11 @@
 
 (eval-when-compile (require 'subr-x))
 
-
-;;;;;;;;;
-;;; Group
+;;
+;;
+;;;
+;;; Group
+;;;
 ;;
 ;;
 
@@ -50,9 +55,11 @@
   (interactive)
   (customize-group 'nop))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Face Utilities
+;;
+;;
+;;;
+;;; Face Utilities
+;;;
 ;;
 ;;
 
@@ -74,9 +81,11 @@
                  ,@(funcall fn depth)))
             (format doc-fmt depth))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Utilities
+;;
+;;
+;;;
+;;; Utilities
+;;;
 ;;
 ;;
 
@@ -84,9 +93,11 @@
 (cl-defgeneric nop--debug (instance)
   (:documentation "Format a readable representation of object in message area."))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Range
+;;
+;;
+;;;
+;;; Range
+;;;
 ;;
 ;;
 ;; Position (between two characters) range.
@@ -126,9 +137,12 @@
       (apply #'overlay-put ov kv))
     ov))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Positions and Ranges
+;;
+;;
+;;;
+;;; Positions and Ranges
+;;;
+;;
 ;;
 ;;
 ;;                  comment
@@ -267,9 +281,11 @@ It can still decide that the contents are invalid, and return nil."
           (nop--debug-range (nop--dspec-r positions))
           (nop--debug-range (nop--info-r positions))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Directive
+;;
+;;
+;;;
+;;; Directive
+;;;
 ;;
 ;;
 
@@ -351,9 +367,11 @@ Arbitrary attributes associated with the directive.")))
          :documentation "
 The identifier of the label.")))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Debug Printing
+;;
+;;
+;;;
+;;; Debug Printing
+;;;
 ;;
 ;;
 
@@ -406,9 +424,11 @@ The identifier of the label.")))
                                       (oref d expansion))
                        (cl-call-next-method)))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Directive Parsing
+;;
+;;
+;;;
+;;; Directive Parsing
+;;;
 ;;
 ;;
 
@@ -522,9 +542,11 @@ Leaves cursor at the end of comment. Assumes cursor is looking at comment-positi
      nil)
     (positions (nop--generate-directive positions))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Directive Merge
+;;
+;;
+;;;
+;;; Directive Merge
+;;;
 ;;
 ;;
 
@@ -627,9 +649,11 @@ If the list has exhausted, continuation is invalid."
            ;; finally (message "%s" directives)
            finally return (car queue)))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Depth Propagation
+;;
+;;
+;;;
+;;; Depth Propagation
+;;;
 ;;
 ;;
 
@@ -646,9 +670,11 @@ If the list has exhausted, continuation is invalid."
                        (:dec (1- base)))
                 depth base))))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Buffer processing
+;;
+;;
+;;;
+;;; Buffer Processing
+;;;
 ;;
 ;;
 
@@ -684,10 +710,9 @@ If the list has exhausted, continuation is invalid."
 
 ;;
 ;;
-;;;;;;;;;;;;;;;;;;;;
-
-;;;;;;;;;;;;;;;;;;;;;
-;;; Nop Provide
+;;;
+;;; Nop Provide
+;;;
 ;;
 ;;
 
