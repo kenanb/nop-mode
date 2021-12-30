@@ -191,8 +191,8 @@
      ((eq :merged (oref d kind)) (and primary-visible primary-expanded))
      (t primary-visible))))
 
-(defun nop--next-visible-node (backwardp primaryp)
-  (cl-loop for curr = (nop--cached-active primaryp) then candidate
+(defun nop--next-visible-node (current backwardp primaryp)
+  (cl-loop for curr = current then candidate
            while curr
 
            for curr-visible = t then candidate-visible
@@ -221,37 +221,34 @@
          (ov (cl-find-if 'nop--tree-overlay-p (overlays-at p t))))
     (overlay-get ov 'handle)))
 
-(defun nop--find-hovered-node (&optional primaryp)
-  (let* ((handle (nop--get-nearest-handle))
-         (directive (overlay-get handle 'directive)))
-    (if primaryp directive
-      (cl-loop with p = (point)
-               for curr = directive then next
-               for next = (oref curr next-node)
-               while next
-               ;; Looking for the first succeeding entry that's not behind the point.
-               until (< p (oref (oref next positions) begin))
-               finally return curr))))
+(defun nop--locate-focused (begin-node)
+  (cl-loop with p = (point)
+           for curr = begin-node then next
+           for next = (oref curr next-node)
+           while next
+           ;; Looking for the first succeeding entry that's not behind the point.
+           until (< p (oref (oref next positions) begin))
+           finally return curr))
 
-(defun nop--get-nearest-visible-node (&optional primaryp)
-  (let* ((backwardp (cl-minusp (- (point) nop--last-point)))
-         (found (nop--find-hovered-node primaryp))
-         (invisiblep (not (nop--node-visible-p found)))
-         (collapsed-primary-p (and (not (eq :merged (oref found kind)))
-                                   (overlay-get (nop--get-arbitrary found :handle) 'collapsed)))
-         (collapsed-on-point-p (and collapsed-primary-p
-                                    (> (point) (oref (nop--info-r (oref found positions)) end)))))
-    (cond
-     (invisiblep
-      (setf found (nop--next-visible-node backwardp primaryp))
-      (nop--nav-jump-to-directive found))
-     (collapsed-on-point-p
-      ;; If possible, make sure to jump over the collapsed section.
-      (unless backwardp ; If EOF, stay at found.
-        (setf found (or (nop--next-visible-node nil primaryp) found)))
-      (nop--nav-jump-to-directive found)))
-
-    found))
+(defun nop--get-nearest-visible-node-pair (last-point)
+  (let* ((backwardp (cl-minusp (- (point) last-point)))
+         (handle (nop--get-nearest-handle))
+         (primary (overlay-get handle 'directive))
+         (primary-collapsed-p (overlay-get handle 'collapsed))
+         (focused (nop--locate-focused primary))
+         (past-handle-p (> (point) (oref (nop--info-r (oref primary positions)) end)))
+         (collapsed-on-point-p (and primary-collapsed-p past-handle-p)))
+    (if collapsed-on-point-p
+        ;; If possible, make sure to jump over the collapsed section.
+        ;; If EOF, backtrack to primary.
+        (if backwardp
+            (progn
+              (nop--nav-jump-to-directive primary)
+              (cons primary primary))
+          (setf focused (or (nop--next-visible-node primary nil nil) primary))
+          (nop--nav-jump-to-directive focused)
+          (cons (overlay-get (nop--get-nearest-handle) 'directive) focused))
+      (cons primary focused))))
 
 ;;
 ;;
@@ -263,22 +260,37 @@
 
 ;; (cl-declaim (optimize (speed 3) (safety 2)))
 
+(defvar-local nop--last-point nil)
 (defvar-local nop--active-primary nil)
 (defvar-local nop--active-focused nil)
 
-(define-inline nop-assert-cached-active (&optional primaryp)
+(define-inline nop-assert-cached-primary ()
   (inline-quote
-   (cl-assert (eq ,(if primaryp 'nop--active-primary 'nop--active-focused)
-                  (nop--find-hovered-node ,primaryp))
+   (cl-assert (eq (overlay-get (nop--get-nearest-handle) 'directive)
+                  nop--active-primary)
               nil
-              "Cached active [ %s (%s) ] used in %S is outdated: [ %s (%s) ]"
+              "Cached primary [ %s (%s) ] used in %S is outdated: [ %s (%s) ]"
               nop--last-point
-              (oref ,(if primaryp 'nop--active-primary 'nop--active-focused) description)
+              (oref nop--active-primary description)
               (cadr (backtrace-frame 7))
               (point)
-              (oref (nop--find-hovered-node ,primaryp) description))))
+              (oref (overlay-get (nop--get-nearest-handle) 'directive) description))))
 
-;; (define-inline nop-assert-cached-active (&optional primaryp) nil)
+(define-inline nop-assert-cached-focused ()
+  (inline-quote
+   (cl-assert (eq (nop--locate-focused (overlay-get (nop--get-nearest-handle) 'directive))
+                  nop--active-focused)
+              nil
+              "Cached focused [ %s (%s) ] used in %S is outdated: [ %s (%s) ]"
+              nop--last-point
+              (oref nop--active-focused description)
+              (cadr (backtrace-frame 7))
+              (point)
+              (oref (nop--locate-focused (overlay-get (nop--get-nearest-handle) 'directive))
+                    description))))
+
+;; (define-inline nop-assert-cached-primary () nil)
+;; (define-inline nop-assert-cached-focused () nil)
 
 (defun nop--adjust-primary-activation (node active-handle active-title)
   (when node
@@ -307,8 +319,9 @@
 (defun nop--read-post-command ()
   (unless (eq (point) nop--last-point)
 
-    (let* ((new-primary (nop--get-nearest-visible-node t))
-           (new-focused (nop--get-nearest-visible-node))
+    (let* ((new-nodes (nop--get-nearest-visible-node-pair nop--last-point))
+           (new-primary (car new-nodes))
+           (new-focused (cdr new-nodes))
            (old-primary nop--active-primary)
            (old-focused nop--active-focused)
            (primary-changed-p (not (eq new-primary old-primary)))
@@ -354,7 +367,7 @@
 
 (defun nop-nav-jump-forward ()
   (interactive)
-  (nop-assert-cached-active t)
+  (nop-assert-cached-primary)
   ;; No overlay at the end of buffer.
   (let* ((handle (nop--get-nearest-handle))
          (directive (overlay-get handle 'directive))
@@ -369,41 +382,43 @@
 (defun nop--cached-active (primaryp)
   (if primaryp nop--active-primary nop--active-focused))
 
-(defun nop--nav-home (&optional primaryp)
+(defun nop--nav-home (primaryp)
   (nop--nav-jump-to-directive (nop--cached-active primaryp)))
 
 (defun nop-nav-home-focused ()
   (interactive)
-  (nop-assert-cached-active)
-  (nop--nav-home))
+  (nop-assert-cached-focused)
+  (nop--nav-home nil))
 
 (defun nop-nav-home-primary ()
   (interactive)
   (nop--nav-home t))
 
-(defun nop--nav-step (backwardp &optional primaryp)
-  (when-let ((found (nop--next-visible-node backwardp primaryp)))
+(defun nop--nav-step (backwardp primaryp)
+  (when-let ((found (nop--next-visible-node (nop--cached-active primaryp)
+                                            backwardp
+                                            primaryp)))
     (nop--nav-jump-to-directive found))
   (recenter))
 
 (defun nop-nav-step-forward-focused ()
   (interactive)
-  (nop-assert-cached-active)
-  (nop--nav-step nil))
+  (nop-assert-cached-focused)
+  (nop--nav-step nil nil))
 
 (defun nop-nav-step-forward-primary ()
   (interactive)
-  (nop-assert-cached-active t)
+  (nop-assert-cached-primary)
   (nop--nav-step nil t))
 
 (defun nop-nav-step-backward-focused ()
   (interactive)
-  (nop-assert-cached-active)
-  (nop--nav-step t))
+  (nop-assert-cached-focused)
+  (nop--nav-step t nil))
 
 (defun nop-nav-step-backward-primary ()
   (interactive)
-  (nop-assert-cached-active t)
+  (nop-assert-cached-primary)
   (nop--nav-step t t))
 
 ;;
@@ -521,24 +536,24 @@
 
 (defun nop-nav-expand-subtree-focused ()
   (interactive)
-  (nop-assert-cached-active)
+  (nop-assert-cached-focused)
   (nop--apply-immediate-children #'nop--nav-expand-node nop--active-focused))
 
 (defun nop-nav-expand-subtree-primary ()
   (interactive)
-  (nop-assert-cached-active t)
+  (nop-assert-cached-primary)
   (nop--apply-all-children #'nop--nav-expand-node nop--active-primary))
 
 (defun nop-nav-collapse-subtree-focused ()
   (interactive)
-  (nop-assert-cached-active)
+  (nop-assert-cached-focused)
   (let ((d nop--active-focused))
     (nop--apply-immediate-children #'nop--nav-collapse-node d)
     (nop--nav-jump-to-directive d)))
 
 (defun nop-nav-collapse-subtree-primary ()
   (interactive)
-  (nop-assert-cached-active t)
+  (nop-assert-cached-primary)
   (let ((d nop--active-primary))
     (nop--apply-all-children #'nop--nav-collapse-node d)
     (nop--nav-jump-to-directive d)))
@@ -650,7 +665,6 @@
 (defvar-local nop--fringe-mode-copy nil)
 (defvar-local nop--truncate-lines-copy nil)
 (defvar-local nop--buffer-read-only-copy nil)
-(defvar-local nop--last-point nil)
 
 (defun nop--before-read-mode (max-depth)
   (let ((margin-width (* (1+ max-depth) nop--ov-margin-block-width)))
@@ -721,8 +735,9 @@
       (delete-overlay (nop--get-arbitrary default :handle))))
 
   (setf nop--last-point (point))
-  (setf nop--active-primary (nop--get-nearest-visible-node t))
-  (setf nop--active-focused (nop--get-nearest-visible-node))
+  (let ((new-nodes (nop--get-nearest-visible-node-pair nop--last-point)))
+    (setf nop--active-primary (car new-nodes))
+    (setf nop--active-focused (cdr new-nodes)))
   (add-hook 'post-command-hook #'nop--read-post-command 0 t)
 
   (when collapsed
