@@ -36,10 +36,10 @@
 (defun nop-cycle-modes ()
   (interactive)
   (cond
+   (nop-read-mode (nop-read-mode -1) (nop-code-mode 1))
    (nop-code-mode (nop-code-mode -1) (nop-mark-mode 1))
    (nop-mark-mode (nop-mark-mode -1) (nop-read-mode 1))
-   (nop-read-mode (nop-read-mode -1) (nop-code-mode 1))
-   (t (nop-code-mode 1))))
+   (t (nop-read-mode 1))))
 
 ;;;###autoload
 (define-minor-mode nop-mode
@@ -55,9 +55,9 @@
   :group 'nop
   (if nop-mode (nop-cycle-modes)
     (cond
+     (nop-read-mode (nop-read-mode -1))
      (nop-code-mode (nop-code-mode -1))
-     (nop-mark-mode (nop-mark-mode -1))
-     (nop-read-mode (nop-read-mode -1)))))
+     (nop-mark-mode (nop-mark-mode -1)))))
 
 ;;;###autoload
 (define-globalized-minor-mode global-nop-mode

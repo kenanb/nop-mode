@@ -565,7 +565,7 @@ If the list has exhausted, continuation is invalid."
        (setf kind :ignore)
        (pcase (nop--merge-continue source (cdr directives))
          (:scope-exit
-          ;; (message "ERROR: [INVALID CONTINUATION] No head node at given depth: %s\n"
+          ;; (message "ERROR: [INVALID CONTINUATION] No primary node at given depth: %s\n"
           ;;          description)
           nil)
          (:exhausted
@@ -579,12 +579,12 @@ If the list has exhausted, continuation is invalid."
       (t (list source)))))
 
 (cl-defun nop--process-continuations (directives &aux (source (car directives)))
-  "Possibly registers a series of continuations to a head node."
+  "Possibly registers a series of continuations to a primary node."
 
   (if-let ((clist (and
                    ;; Only process tree directives.
                    (nop--tree-directive-p source)
-                   ;; Skip (possibly already populated) head node.
+                   ;; Skip (possibly already populated) primary node.
                    (eq (oref source kind) :continue)
                    ;; Returned continuation list is ordered bottom-up.
                    (reverse (nop--merge-new-source directives)))))
@@ -629,7 +629,7 @@ If the list has exhausted, continuation is invalid."
            for d = (car dl)
            if (nop--tree-directive-p d) do
 
-           ;; Register continuations under head nodes.
+           ;; Register continuations under primary nodes.
            (nop--process-continuations dl)
 
            ;; :IGNORE isn't considered for children collection at all.
