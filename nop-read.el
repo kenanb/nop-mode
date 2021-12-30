@@ -439,10 +439,10 @@
   (when (nop--tree-directive-p d)
     (with-slots (kind depth) d
       (unless (eq :default kind)
-        (let ((handle (nop--get-arbitrary d :handle))
-              (title (nop--get-arbitrary d :title))
-              (ellipsis (overlay-get handle 'ellipsis))
-              (drawer (overlay-get handle 'drawer)))
+        (let* ((handle (nop--get-arbitrary d :handle))
+               (title (nop--get-arbitrary d :title))
+               (ellipsis (overlay-get handle 'ellipsis))
+               (drawer (overlay-get handle 'drawer)))
 
           ;; Property to keep explicit drawer state.
           (overlay-put handle 'collapsed nil)
@@ -462,12 +462,12 @@
   (when (nop--tree-directive-p d)
     (with-slots (kind depth) d
       (unless (eq :default kind)
-        (let ((handle (nop--get-arbitrary d :handle))
-              (title (nop--get-arbitrary d :title))
-              (ellipsis (overlay-get handle 'ellipsis))
-              (drawer (overlay-get handle 'drawer))
-              (face (list (elt nop--shadow-faces depth)
-                          (elt nop--drawer-faces depth))))
+        (let* ((handle (nop--get-arbitrary d :handle))
+               (title (nop--get-arbitrary d :title))
+               (ellipsis (overlay-get handle 'ellipsis))
+               (drawer (overlay-get handle 'drawer))
+               (face (list (elt nop--shadow-faces depth)
+                           (elt nop--drawer-faces depth))))
 
           ;; Jump to the beginning of the directive that will be collapsed.
           (nop--nav-jump-to-directive d)
