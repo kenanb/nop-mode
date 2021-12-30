@@ -453,7 +453,7 @@ The identifier of the label.")))
 
   (:method ((d nop--directive))
            (with-slots (positions) d
-             ;; (message "T: %s" (nop--inner-string positions))
+             ;; (lwarn 'nop :debug "Parsed directive: %s" (nop--inner-string positions))
              (nop--process-extra-info d (nop--info-string positions))))
 
   (:method :after
@@ -496,7 +496,7 @@ The identifier of the label.")))
                            (if (numberp depth)
                                (make-instance 'nop--tree-directive :positions positions :depth depth)
                              (make-instance 'nop--directive :positions positions)))))))
-    ;; (message (nop--debug positions))
+    ;; (lwarn 'nop :debug "Positions for generated directive: %s" (nop--debug positions))
     (nop--parse-directive directive)
     directive))
 
@@ -533,7 +533,8 @@ Assumes cursor is looking at comment-position."
   "Possibly generates a directive using the comment at current position.
 Leaves cursor at the end of comment. Assumes cursor is looking at comment-position."
   (pcase (nop--generate-directive-positions)
-    ((and (pred keywordp) kw) ; (message (plist-get directive-search-messages kw))
+    ((and (pred keywordp) kw)
+     ;; (lwarn 'nop :debug (plist-get directive-search-messages kw))
      nil)
     (positions (nop--generate-directive positions))))
 
@@ -559,18 +560,22 @@ If the list has exhausted, continuation is invalid."
 
 (cl-defun nop--merge-new-source (directives &aux (source (car directives)))
   "Assumes SOURCE is a tree directive. Returns list of continuations, or nil if there was an error."
-  (with-slots (description kind) source
+  (with-slots (description kind depth) source
     (cl-case kind
       (:continue
        (setf kind :ignore)
        (pcase (nop--merge-continue source (cdr directives))
          (:scope-exit
-          ;; (message "ERROR: [INVALID CONTINUATION] No primary node at given depth: %s\n"
-          ;;          description)
+          (lwarn 'nop :debug
+                 "%s No primary node at depth %s to merge continuation prefixed '%s'."
+                 "Invalid continuation directive found."
+                 depth description)
           nil)
          (:exhausted
-          ;; (message "ERROR: [INVALID CONTINUATION] Exhausted directives: %s\n"
-          ;;          description)
+          (lwarn 'nop :debug
+                 "%s Exhausted all nodes while trying to merge continuation prefixed '%s'."
+                 "Invalid continuation directive found."
+                 description)
           nil)
          ((pred null) nil)
          ;; Mark current entry as merged, only if the nested lookup succeeded.
@@ -647,7 +652,6 @@ If the list has exhausted, continuation is invalid."
            else do (push d leaves)
 
            ;; Assumes at this point we have a single depth left, that collected everything: DEFAULT
-           ;; finally (message "%s" directives)
            finally return (car queue)))
 
 ;;
@@ -682,11 +686,9 @@ If the list has exhausted, continuation is invalid."
 (cl-defun nop--call-for-each-node (fn d &optional depth-list args)
   (apply fn d depth-list args)
   (when (nop--tree-directive-p d)
-    ;; (message "Traversing children of %s" (oref d description))
     (cl-loop for c in-ref (oref d children)
              do (nop--call-for-each-node
                  fn c (cons (oref d depth) depth-list) args))
-    ;; (message "Traversing continuations of %s" (oref d description))
     (cl-loop for c in-ref (oref d continuations)
              do (nop--call-for-each-node fn c depth-list args))))
 
