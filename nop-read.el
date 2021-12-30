@@ -236,20 +236,20 @@
 (defun nop--get-nearest-visible-node (&optional from-head)
   (let* ((backward-p (cl-minusp (- (point) nop--last-point)))
          (found (nop--find-hovered-node from-head))
-         (visible-p (nop--node-visible-p found))
+         (invisible-p (not (nop--node-visible-p found)))
          (collapsed-primary-p (and (not (eq :merged (oref found kind)))
-                                   (overlay-get (nop--get-arbitrary found :handle) 'collapsed))))
-
-    (unless visible-p
+                                   (overlay-get (nop--get-arbitrary found :handle) 'collapsed)))
+         (collapsed-on-point-p (and collapsed-primary-p
+                                    (> (point) (oref (nop--info-r (oref found positions)) end)))))
+    (cond
+     (invisible-p
       (setf found (nop--next-visible-node backward-p from-head))
       (nop--nav-jump-to-directive found))
-
-    ;; Make sure to jump over the collapsed section.
-    (when (and collapsed-primary-p (> (point) (oref (nop--info-r (oref found positions)) end)))
-      (if backward-p
-          (nop--nav-jump-to-directive found)
-        (setf found (nop--next-visible-node backward-p from-head))
-        (nop--nav-jump-to-directive found)))
+     (collapsed-on-point-p
+      ;; If possible, make sure to jump over the collapsed section.
+      (unless backward-p ; If EOF, stay at found.
+        (setf found (or (nop--next-visible-node nil from-head) found)))
+      (nop--nav-jump-to-directive found)))
 
     found))
 
