@@ -349,16 +349,6 @@ The tree directive that marks the end of the immediate contents of this.")
               :documentation "
 The tree directive of which the immediate contents are terminated by this.")
 
-   (title :initform nil
-           :type (or overlay null)
-           :documentation "
-Overlay representing the title of directive.")
-
-   (handle :initform nil
-           :type (or overlay null)
-           :documentation "
-The canonical overlay representing this directive.")
-
    (arbitrary :initform nil
               :type list
               :documentation "
@@ -626,6 +616,12 @@ If the list has exhausted, continuation is invalid."
 (defmacro nop--queue-push (directive place)
   `(setf ,place (nop--queue-collect ,directive ,place)))
 
+(defun nop--set-arbitrary (d key val)
+  (oset d arbitrary (plist-put (oref d arbitrary) key val)))
+
+(defun nop--get-arbitrary (d key)
+  (plist-get (oref d arbitrary) key))
+
 (defun nop--merge (directives)
   ;; DIRECTIVES is in reverse of buffer order.
   (cl-loop with max-depth = 0 and leaves and queue and next
@@ -645,7 +641,7 @@ If the list has exhausted, continuation is invalid."
              (setf leaves nil)
              (if (or (cl-plusp (oref d depth)) (eq (oref d kind) :merged))
                  (setf max-depth (max (oref d depth) max-depth))
-               (oset d arbitrary (plist-put (oref d arbitrary) :max-depth max-depth))
+               (nop--set-arbitrary d :max-depth max-depth)
                (setf max-depth 0)))
 
            else do (push d leaves)

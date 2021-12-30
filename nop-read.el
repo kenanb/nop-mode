@@ -143,15 +143,77 @@
 ;;
 ;;
 ;;;
-;;; Active Node Tracking
+;;; Navigation Routines
 ;;;
 ;;
 ;;
 
-;; (cl-declaim (optimize (speed 3) (safety 2)))
+(defun nop--nav-jump-to-directive (d)
+  (goto-char (oref (nop--info-r (oref d positions)) begin)))
 
-(defvar-local nop--active-head-node nil)
-(defvar-local nop--active-body-node nil)
+(defun nop--get-last-node-of-subtree (d)
+  (let* ((last-top-level (or (car (last (oref d continuations))) d))
+         (last-child-node
+          (cl-find-if #'nop--tree-directive-p
+                      (oref last-top-level children)
+                      :from-end t)))
+    (if last-child-node
+        (nop--get-last-node-of-subtree last-child-node)
+      last-top-level)))
+
+(defun nop--successor-in-direction (d backward)
+  (slot-value d (if backward 'prev-node 'next-node)))
+
+(defun nop--get-primary-node (d)
+  (cl-loop with depth = (oref d depth)
+           for prev = d then (oref prev prev-node)
+           while (or (eq :merged (oref prev kind))
+                     (not (= depth (oref prev depth))))
+           finally return prev))
+
+(defun nop--possibly-visible-successor-in-direction (d backward)
+  (if backward
+      (if (eq :merged (oref d kind))
+          (nop--get-primary-node d)
+        (oref d prev-node))
+    (oref (nop--get-last-node-of-subtree d) next-node)))
+
+(defun nop--node-visible-p (d)
+  (let* ((primary (nop--get-primary-node d))
+         (handle (nop--get-arbitrary primary :handle))
+         (primary-expanded (not (overlay-get handle 'collapsed)))
+         (primary-visible (overlay-start handle)))
+    ;; If handle is not visible, node is invisible regardless.
+    (cond
+     ;; If primary is :DEFAULT, both primary and its continuation nodes are
+     ;; visible.
+     ((eq :default (oref primary kind)) t)
+     ((eq :merged (oref d kind)) (and primary-visible primary-expanded))
+     (t primary-visible))))
+
+(defun nop--next-visible-node (backward from-head)
+  (cl-loop for curr = (nop--cached-active from-head) then candidate
+           while curr
+
+           for curr-visible = t then candidate-visible
+
+           for candidate = (funcall (if curr-visible #'nop--successor-in-direction
+                                      #'nop--possibly-visible-successor-in-direction)
+                                    curr backward)
+           while candidate
+
+           for candidate-visible = (nop--node-visible-p candidate)
+
+           thereis (when (and candidate
+
+                              ;; NOTE : Not skipping hidden candidates will cause the cached
+                              ;; hovered node and calculated hovered node to diverge.
+                              candidate-visible
+
+                              ;; If FROM-HEAD is requested, skip merged directives.
+                              (not (and from-head (eq (oref candidate kind) :merged))))
+
+                     candidate)))
 
 (defun nop--get-nearest-handle ()
   ;; The last overlay ends at buffer-end. Look behind if point is at point-max.
@@ -171,6 +233,39 @@
                until (< p (oref (oref next positions) begin))
                finally return curr))))
 
+(defun nop--get-nearest-visible-node (&optional from-head)
+  (let* ((backward-p (cl-minusp (- (point) nop--last-point)))
+         (found (nop--find-hovered-node from-head))
+         (visible-p (nop--node-visible-p found))
+         (collapsed-primary-p (and (not (eq :merged (oref found kind)))
+                                   (overlay-get (nop--get-arbitrary found :handle) 'collapsed))))
+
+    (unless visible-p
+      (setf found (nop--next-visible-node backward-p from-head))
+      (nop--nav-jump-to-directive found))
+
+    ;; Make sure to jump over the collapsed section.
+    (when (and collapsed-primary-p (> (point) (oref (nop--info-r (oref found positions)) end)))
+      (if backward-p
+          (nop--nav-jump-to-directive found)
+        (setf found (nop--next-visible-node backward-p from-head))
+        (nop--nav-jump-to-directive found)))
+
+    found))
+
+;;
+;;
+;;;
+;;; Active Node Tracking
+;;;
+;;
+;;
+
+;; (cl-declaim (optimize (speed 3) (safety 2)))
+
+(defvar-local nop--active-head-node nil)
+(defvar-local nop--active-body-node nil)
+
 (define-inline nop-assert-cached-active (&optional from-head)
   (inline-quote
    (cl-assert (eq ,(if from-head 'nop--active-head-node 'nop--active-body-node)
@@ -188,8 +283,8 @@
 (defun nop--adjust-head-node-activation (node active-handle active-title)
   (when node
     (let* ((depth (oref node depth))
-           (handle (oref node handle))
-           (title (overlay-get handle 'title))
+           (handle (nop--get-arbitrary node :handle))
+           (title (nop--get-arbitrary node :title))
            (before-string (overlay-get title 'before-string))
            (h-face (elt (if active-handle nop--handle-active-faces nop--handle-faces) depth))
            (t-face (list (if active-title 'nop-read-title-active 'nop-read-title) h-face))
@@ -202,7 +297,7 @@
 (defun nop--adjust-body-node-activation (node active)
   (when node
     (let* ((depth (oref node depth))
-           (title (oref node title))
+           (title (nop--get-arbitrary node :title))
            (before-string (overlay-get title 'before-string))
            (t-face (list (if active 'nop-read-title-active 'nop-read-title)
                          (elt nop--drawer-faces depth))))
@@ -211,14 +306,16 @@
 
 (defun nop--read-post-command ()
   (unless (eq (point) nop--last-point)
-    (let* ((new-head (nop--find-hovered-node t))
-           (new-body (nop--find-hovered-node))
+
+    (let* ((new-head (nop--get-nearest-visible-node t))
+           (new-body (nop--get-nearest-visible-node))
            (old-head nop--active-head-node)
            (old-body nop--active-body-node)
            (head-changed-p (not (eq new-head old-head)))
            (active-changed-p (not (eq new-body old-body)))
            (active-old-head-p (eq old-head old-body))
            (active-new-head-p (eq new-head new-body)))
+
       (when active-changed-p
 
         (cond
@@ -255,19 +352,6 @@
 ;;
 ;;
 
-(defun nop--nav-jump-to-directive (d)
-  (goto-char (oref (nop--info-r (oref d positions)) begin)))
-
-(defun nop--get-last-node-of-subtree (d)
-  (let* ((last-top-level (or (car (last (oref d continuations))) d))
-         (last-child-node
-          (cl-find-if #'nop--tree-directive-p
-                      (oref last-top-level children)
-                      :from-end t)))
-    (if last-child-node
-        (nop--get-last-node-of-subtree last-child-node)
-      last-top-level)))
-
 (defun nop-nav-jump-forward ()
   (interactive)
   (nop-assert-cached-active t)
@@ -297,62 +381,8 @@
   (interactive)
   (nop--nav-home t))
 
-(defun nop--successor-in-direction (d backward)
-  (slot-value d (if backward 'prev-node 'next-node)))
-
-(defun nop--get-primary-node (d)
-  (cl-loop with depth = (oref d depth)
-           for prev = d then (oref prev prev-node)
-           while (or (eq :merged (oref prev kind))
-                     (not (= depth (oref prev depth))))
-           finally return prev))
-
-(defun nop--node-visible-p (d)
-  (let* ((primary (nop--get-primary-node d))
-         (handle (oref primary handle))
-         (primary-expanded (not (overlay-get handle 'collapsed)))
-         (primary-visible (overlay-start handle)))
-    ;; If handle is not visible, node is invisible regardless.
-    (cond
-     ;; If primary is :DEFAULT, both primary and its continuation nodes are
-     ;; visible.
-     ((eq :default (oref primary kind)) t)
-     ((eq :merged (oref d kind)) (and primary-visible primary-expanded))
-     (t primary-visible))))
-
-(defun nop--possibly-visible-successor-in-direction (d backward)
-  (if backward
-      (if (eq :merged (oref d kind))
-          (nop--get-primary-node d)
-        (oref d prev-node))
-    (oref (nop--get-last-node-of-subtree d) next-node)))
-
-(defun nop--nav-next-visible-node (backward from-head)
-  (cl-loop for curr = (nop--cached-active from-head) then candidate
-           while curr
-
-           for curr-visible = t then candidate-visible
-
-           for candidate = (funcall (if curr-visible #'nop--successor-in-direction
-                                      #'nop--possibly-visible-successor-in-direction)
-                                    curr backward)
-           while candidate
-
-           for candidate-visible = (nop--node-visible-p candidate)
-
-           thereis (when (and candidate
-
-                              ;; NOTE : Not skipping hidden candidates will cause the cached
-                              ;; hovered node and calculated hovered node to diverge.
-                              candidate-visible
-
-                              ;; If FROM-HEAD is requested, skip merged directives.
-                              (not (and from-head (eq (oref candidate kind) :merged))))
-
-                     candidate)))
-
 (defun nop--nav-step (backward &optional from-head)
-  (when-let ((found (nop--nav-next-visible-node backward from-head)))
+  (when-let ((found (nop--next-visible-node backward from-head)))
     (nop--nav-jump-to-directive found))
   (recenter))
 
@@ -392,7 +422,7 @@
   (when (nop--tree-directive-p d)
     (if (eq :merged (oref d kind))
         (nop--recurse-for-subtree #'nop--adjust-subtree-overlays d collapse)
-      (cl-loop with handle = (oref d handle)
+      (cl-loop with handle = (nop--get-arbitrary d :handle)
                for c in '(handle drawer ellipsis title)
                for co = (overlay-get handle c)
                ;; Deletion "detaches" the overlay.
@@ -402,14 +432,15 @@
                                      (overlay-get co 'cached-start)
                                      (overlay-get co 'cached-end)))
       ;; Terminate if directive is a collapsed head.
-      (unless (overlay-get (oref d handle) 'collapsed)
+      (unless (overlay-get (nop--get-arbitrary d :handle) 'collapsed)
         (nop--recurse-for-subtree #'nop--adjust-subtree-overlays d collapse)))))
 
 (defun nop--nav-expand-node (d)
   (when (nop--tree-directive-p d)
-    (with-slots (kind depth handle) d
+    (with-slots (kind depth) d
       (unless (eq :default kind)
-        (let ((title (overlay-get handle 'title))
+        (let ((handle (nop--get-arbitrary d :handle))
+              (title (nop--get-arbitrary d :title))
               (ellipsis (overlay-get handle 'ellipsis))
               (drawer (overlay-get handle 'drawer)))
 
@@ -429,9 +460,10 @@
 
 (defun nop--nav-collapse-node (d)
   (when (nop--tree-directive-p d)
-    (with-slots (kind depth handle) d
+    (with-slots (kind depth) d
       (unless (eq :default kind)
-        (let ((title (overlay-get handle 'title))
+        (let ((handle (nop--get-arbitrary d :handle))
+              (title (nop--get-arbitrary d :title))
               (ellipsis (overlay-get handle 'ellipsis))
               (drawer (overlay-get handle 'drawer))
               (face (list (elt nop--shadow-faces depth)
@@ -565,7 +597,7 @@
     (let* ((m-face (elt nop--drawer-faces depth))
            (title (nop--generate-title-overlay d)))
 
-      (oset d title title)
+      (nop--set-arbitrary d :title title)
       ;; Create the overlay representing a head node, and its continuations.
       ;; Overlay for the tree directive encompass all continuations.
       ;; So we skip merged directives.
@@ -587,7 +619,7 @@
             (overlay-put handle 'ellipsis ellipsis)
             (overlay-put handle 'drawer drawer)
             (overlay-put handle 'directive d)
-            (oset d handle handle)))))))
+            (nop--set-arbitrary d :handle handle)))))))
 
 (defun nop--read-overlay-properties (d current-depth)
   (let ((indent (make-string current-depth ?\s)))
@@ -651,7 +683,7 @@
          (max-depth 0))
 
     (dolist (d merged)
-      (setf max-depth (max max-depth (plist-get (oref d arbitrary) :max-depth))))
+      (setf max-depth (max max-depth (nop--get-arbitrary d :max-depth))))
 
     (nop--before-read-mode max-depth)
 
@@ -685,11 +717,12 @@
 
       ;; In order to avoid special-casing the default everywhere, simply detach
       ;; the default title and handle overlays in the end.
-      (delete-overlay (overlay-get (oref default handle) 'title))
-      (delete-overlay (oref default handle))))
+      (delete-overlay (nop--get-arbitrary default :title))
+      (delete-overlay (nop--get-arbitrary default :handle))))
 
-  (setf nop--active-head-node (nop--find-hovered-node t))
-  (setf nop--active-body-node (nop--find-hovered-node))
+  (setf nop--last-point (point))
+  (setf nop--active-head-node (nop--get-nearest-visible-node t))
+  (setf nop--active-body-node (nop--get-nearest-visible-node))
   (add-hook 'post-command-hook #'nop--read-post-command 0 t)
 
   (when collapsed
