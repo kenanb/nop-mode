@@ -39,11 +39,17 @@
   :group 'nop-overlay)
 
 (defface nop-read-title '((t
-                           ;; :family "Source Sans Pro"
                            :weight semi-bold
-                           ;; :height 0.9
                            :distant-foreground "rosy brown"
                            :foreground "saddle brown"))
+  "Title face for nop-read-mode overlays."
+  :version "0.1"
+  :group 'nop-overlay)
+
+(defface nop-read-title-active '((t
+                                  :weight semi-bold
+                                  :distant-foreground "#FCFCFC"
+                                  :foreground "#121212"))
   "Title face for nop-read-mode overlays."
   :version "0.1"
   :group 'nop-overlay)
@@ -60,6 +66,13 @@
                   (lambda (depth)
                     (list :overline "black"
                           :background (nop--color depth .25 '(#x9 #x9 #x5) '(#xED #xED #xE2))))))
+
+(defconst nop--handle-active-faces
+  (nop--gen-faces "nop-read-handle-active-" 'nop-read-base
+                  "Drawer content box face for depth %s."
+                  (lambda (depth)
+                    (list :overline "black"
+                          :background (nop--color depth -.1 '(#x9 #x9 #x5) '(#xC0 #xD8 #xFD))))))
 
 (defconst nop--shadow-faces
   (nop--gen-faces "nop-read-shadow-" 'nop-read-base
@@ -80,47 +93,159 @@
 
 (defconst nop--ov-margin-block-width 4)
 
-(defun nop--generate-margin-strings (max-depth depths)
-  (cl-loop with size-m = (* (1+ max-depth) nop--ov-margin-block-width)
-           with margin-template = (concat (make-string size-m ?\s) (propertize " " 'face 'default))
-           ;; with margin-l = (copy-sequence margin-template)
-           with margin-r = (copy-sequence margin-template)
-           ;; with margin-lh = (copy-sequence margin-template)
-           with margin-rh = (copy-sequence margin-template)
-           for last = (1+ max-depth) then curr
+(defun nop--add-margin-indent-for-depth (margin depth size-m faces &optional reverse limit-m)
+  (let* ((face (elt faces depth))
+         (curr-m (* depth nop--ov-margin-block-width))
+         (last-m (or limit-m size-m))
+         (b (if reverse curr-m (- size-m last-m)))
+         (e (if reverse last-m (- size-m curr-m))))
+    (put-text-property b e 'face face margin)
+    curr-m))
+
+(defun nop--generate-indentation (max-depth size-m depths template faces &optional reverse)
+  (cl-loop with margin = (copy-sequence template)
+           for last-m = size-m then curr-m
            for curr in depths
+           for curr-m = (nop--add-margin-indent-for-depth
+                         margin curr size-m faces reverse last-m)
+           finally return margin))
 
-           for drawer-face = (elt nop--drawer-faces curr)
-           for handle-face = (elt nop--handle-faces curr) then drawer-face
+(defun nop--generate-prefixes (; l
+                               r)
+  (concat
+   ;; (propertize " " 'display `((margin left-margin) ,l))
+   (propertize " " 'display `((margin right-margin) ,r))))
 
-           for last-m = (* last nop--ov-margin-block-width)
-           for curr-m = (* curr nop--ov-margin-block-width)
+(defun nop--generate-margin-strings (max-depth depths)
+  (let* ((size-m (* (1+ max-depth) nop--ov-margin-block-width))
+         (template (concat (make-string size-m ?\s) (propertize " " 'face 'default)))
+         ;; (margin-l (nop--generate-indentation max-depth (cdr depths) template nop--drawer-faces t))
+         ;; (margin-lh (copy-sequence margin-l))
+         ;; (margin-lha (copy-sequence margin-l))
+         (margin-r (nop--generate-indentation max-depth size-m (cdr depths) template nop--drawer-faces))
+         (margin-rh (copy-sequence margin-r))
+         (margin-rha (copy-sequence margin-r)))
+    ;; (nop--add-margin-indent-for-depth margin-l   (car depths) size-m nop--drawer-faces)
+    ;; (nop--add-margin-indent-for-depth margin-lh  (car depths) size-m nop--handle-faces)
+    ;; (nop--add-margin-indent-for-depth margin-lh  (car depths) size-m nop--handle-active-faces)
+    (nop--add-margin-indent-for-depth margin-r   (car depths) size-m nop--drawer-faces)
+    (nop--add-margin-indent-for-depth margin-rh  (car depths) size-m nop--handle-faces)
+    (nop--add-margin-indent-for-depth margin-rha (car depths) size-m nop--handle-active-faces)
 
-           do
-           ;; (put-text-property curr-m last-m
-           ;;                    'face drawer-face
-           ;;                    margin-l)
-           ;; (put-text-property curr-m last-m
-           ;;                    'face handle-face
-           ;;                    margin-lh)
-           (put-text-property (- size-m last-m) (- size-m curr-m)
-                              'face drawer-face
-                              margin-r)
-           (put-text-property (- size-m last-m) (- size-m curr-m)
-                              'face handle-face
-                              margin-rh)
-
-           finally return (vector
-                           (concat
-                            ;; (propertize " " 'display `((margin left-margin) ,margin-l))
-                            (propertize " " 'display `((margin right-margin) ,margin-r)))
-                           (concat
-                            ;; (propertize " " 'display `((margin left-margin) ,margin-lh))
-                            (propertize " " 'display `((margin right-margin) ,margin-rh))))))
+    (vector (nop--generate-prefixes margin-r)
+            (nop--generate-prefixes margin-rh)
+            (nop--generate-prefixes margin-rha))))
 
 (defun nop--tree-overlay-p (ov)
   (eq 'nop--overlay-tree
       (overlay-get ov 'category)))
+
+;;
+;;
+;;;
+;;; Active Node Tracking
+;;;
+;;
+;;
+
+;; (cl-declaim (optimize (speed 3) (safety 2)))
+
+(defvar-local nop--active-head-node nil)
+(defvar-local nop--active-body-node nil)
+
+(defun nop--get-nearest-handle ()
+  ;; The last overlay ends at buffer-end. Look behind if point is at point-max.
+  (let* ((p (if (eq (point) (point-max)) (1- (point)) (point)))
+         (ov (cl-find-if 'nop--tree-overlay-p (overlays-at p t))))
+    (overlay-get ov 'handle)))
+
+(defun nop--find-hovered-node (&optional from-head)
+  (let* ((handle (nop--get-nearest-handle))
+         (directive (overlay-get handle 'directive)))
+    (if from-head directive
+      (cl-loop with p = (point)
+               for curr = directive then next
+               for next = (oref curr next-node)
+               while next
+               ;; Looking for the first succeeding entry that's not behind the point.
+               until (< p (oref (oref next positions) begin))
+               finally return curr))))
+
+(define-inline nop-assert-cached-active (&optional from-head)
+  (inline-quote
+   (cl-assert (eq ,(if from-head 'nop--active-head-node 'nop--active-body-node)
+                  (nop--find-hovered-node ,from-head))
+              nil
+              "Cached active [ %s (%s) ] used in %S is outdated: [ %s (%s) ]"
+              nop--last-point
+              (oref ,(if from-head 'nop--active-head-node 'nop--active-body-node) description)
+              (cadr (backtrace-frame 7))
+              (point)
+              (oref (nop--find-hovered-node ,from-head) description))))
+
+;; (define-inline nop-assert-cached-active (&optional from-head) nil)
+
+(defun nop--adjust-head-node-activation (node active-handle active-title)
+  (when node
+    (let* ((depth (oref node depth))
+           (handle (oref node handle))
+           (title (overlay-get handle 'title))
+           (before-string (overlay-get title 'before-string))
+           (h-face (elt (if active-handle nop--handle-active-faces nop--handle-faces) depth))
+           (t-face (list (if active-title 'nop-read-title-active 'nop-read-title) h-face))
+           (prefix (funcall (if active-handle #'cdr #'car) (overlay-get handle 'prefixes))))
+      (overlay-put title 'face t-face)
+      (overlay-put title 'before-string (propertize before-string 'face t-face))
+      (overlay-put handle 'face h-face)
+      (overlay-put handle 'line-prefix prefix))))
+
+(defun nop--adjust-body-node-activation (node active)
+  (when node
+    (let* ((depth (oref node depth))
+           (title (oref node title))
+           (before-string (overlay-get title 'before-string))
+           (t-face (list (if active 'nop-read-title-active 'nop-read-title)
+                         (elt nop--drawer-faces depth))))
+      (overlay-put title 'face t-face)
+      (overlay-put title 'before-string (propertize before-string 'face t-face)))))
+
+(defun nop--read-post-command ()
+  (unless (eq (point) nop--last-point)
+    (let* ((new-head (nop--find-hovered-node t))
+           (new-body (nop--find-hovered-node))
+           (old-head nop--active-head-node)
+           (old-body nop--active-body-node)
+           (head-changed-p (not (eq new-head old-head)))
+           (active-changed-p (not (eq new-body old-body)))
+           (active-old-head-p (eq old-head old-body))
+           (active-new-head-p (eq new-head new-body)))
+      (when active-changed-p
+
+        (cond
+         (head-changed-p
+          (nop--adjust-head-node-activation old-head nil nil)
+          (nop--adjust-head-node-activation new-head t active-new-head-p)
+          (unless active-old-head-p
+            (nop--adjust-body-node-activation old-body nil))
+          (unless active-new-head-p
+            (nop--adjust-body-node-activation new-body t)))
+
+         (active-old-head-p
+          (nop--adjust-head-node-activation new-head t nil)
+          (nop--adjust-body-node-activation new-body t))
+
+         (active-new-head-p
+          (nop--adjust-head-node-activation new-head t t)
+          (nop--adjust-body-node-activation old-body nil))
+
+         (t
+          (nop--adjust-body-node-activation old-body nil)
+          (nop--adjust-body-node-activation new-body t)))
+
+        (setf nop--active-head-node new-head
+              nop--active-body-node new-body)))
+
+    (setf nop--last-point (point))))
 
 ;;
 ;;
@@ -143,15 +268,9 @@
         (nop--get-last-node-of-subtree last-child-node)
       last-top-level)))
 
-(defun nop--get-nearest-handle ()
-  ;; The last overlay ends at buffer-end. Look behind if point is at point-max.
-  (let* ((p (if (eq (point) (point-max)) (1- (point)) (point)))
-         (ov (cl-find-if 'nop--tree-overlay-p (overlays-at p t))))
-    ;; (message "Overlay : %s" ov)
-    (overlay-get ov 'handle)))
-
 (defun nop-nav-jump-forward ()
   (interactive)
+  (nop-assert-cached-active t)
   ;; No overlay at the end of buffer.
   (let* ((handle (nop--get-nearest-handle))
          (directive (overlay-get handle 'directive))
@@ -163,51 +282,98 @@
       (nop--nav-jump-to-directive fwd-node)))
   (recenter))
 
-(defun nop--find-hovered-node (&optional from-head)
-  (let* ((handle (nop--get-nearest-handle))
-         (directive (overlay-get handle 'directive)))
-    (if from-head directive
-      (cl-loop with p = (point)
-               for curr = directive then next
-               for next = (oref curr next-node)
-               while next
-               ;; Looking for the first succeeding entry that's not behind the point.
-               until (< p (oref (oref next positions) begin))
-               finally return curr))))
+(defun nop--cached-active (from-head)
+  (if from-head nop--active-head-node nop--active-body-node))
 
 (defun nop--nav-home (&optional from-head)
-  (nop--nav-jump-to-directive (nop--find-hovered-node from-head)))
+  (nop--nav-jump-to-directive (nop--cached-active from-head)))
 
 (defun nop-nav-home-from-body ()
   (interactive)
-  (nop-nav-home))
+  (nop-assert-cached-active)
+  (nop--nav-home))
 
 (defun nop-nav-home-from-head ()
   (interactive)
   (nop--nav-home t))
 
+(defun nop--successor-in-direction (d backward)
+  (slot-value d (if backward 'prev-node 'next-node)))
+
+(defun nop--get-primary-node (d)
+  (cl-loop with depth = (oref d depth)
+           for prev = d then (oref prev prev-node)
+           while (or (eq :merged (oref prev kind))
+                     (not (= depth (oref prev depth))))
+           finally return prev))
+
+(defun nop--node-visible-p (d)
+  (let* ((primary (nop--get-primary-node d))
+         (handle (oref primary handle))
+         (primary-expanded (not (overlay-get handle 'collapsed)))
+         (primary-visible (overlay-start handle)))
+    ;; If handle is not visible, node is invisible regardless.
+    (cond
+     ;; If primary is :DEFAULT, both primary and its continuation nodes are
+     ;; visible.
+     ((eq :default (oref primary kind)) t)
+     ((eq :merged (oref d kind)) (and primary-visible primary-expanded))
+     (t primary-visible))))
+
+(defun nop--possibly-visible-successor-in-direction (d backward)
+  (if backward
+      (if (eq :merged (oref d kind))
+          (nop--get-primary-node d)
+        (oref d prev-node))
+    (oref (nop--get-last-node-of-subtree d) next-node)))
+
+(defun nop--nav-next-visible-node (backward from-head)
+  (cl-loop for curr = (nop--cached-active from-head) then candidate
+           while curr
+
+           for curr-visible = t then candidate-visible
+
+           for candidate = (funcall (if curr-visible #'nop--successor-in-direction
+                                      #'nop--possibly-visible-successor-in-direction)
+                                    curr backward)
+           while candidate
+
+           for candidate-visible = (nop--node-visible-p candidate)
+
+           thereis (when (and candidate
+
+                              ;; NOTE : Not skipping hidden candidates will cause the cached
+                              ;; hovered node and calculated hovered node to diverge.
+                              candidate-visible
+
+                              ;; If FROM-HEAD is requested, skip merged directives.
+                              (not (and from-head (eq (oref candidate kind) :merged))))
+
+                     candidate)))
+
 (defun nop--nav-step (backward &optional from-head)
-  (cl-loop for curr = (nop--find-hovered-node from-head) then candidate
-           for candidate = (slot-value curr (if backward 'prev-node 'next-node))
-           ;; Looking for the first candidate that's not behind the point.
-           while (and from-head candidate (eq (oref candidate kind) :merged))
-           finally (when candidate (nop--nav-jump-to-directive candidate)))
+  (when-let ((found (nop--nav-next-visible-node backward from-head)))
+    (nop--nav-jump-to-directive found))
   (recenter))
 
 (defun nop-nav-step-forward-from-body ()
   (interactive)
+  (nop-assert-cached-active)
   (nop--nav-step nil))
 
 (defun nop-nav-step-forward-from-head ()
   (interactive)
+  (nop-assert-cached-active t)
   (nop--nav-step nil t))
 
 (defun nop-nav-step-backward-from-body ()
   (interactive)
+  (nop-assert-cached-active)
   (nop--nav-step t))
 
 (defun nop-nav-step-backward-from-head ()
   (interactive)
+  (nop-assert-cached-active t)
   (nop--nav-step t t))
 
 ;;
@@ -240,67 +406,68 @@
         (nop--recurse-for-subtree #'nop--adjust-subtree-overlays d collapse)))))
 
 (defun nop--nav-expand-node (d)
-  (with-slots (kind depth handle) d
-    (unless (eq :default kind)
-      (let ((title (overlay-get handle 'title))
-            (ellipsis (overlay-get handle 'ellipsis))
-            (drawer (overlay-get handle 'drawer)))
+  (when (nop--tree-directive-p d)
+    (with-slots (kind depth handle) d
+      (unless (eq :default kind)
+        (let ((title (overlay-get handle 'title))
+              (ellipsis (overlay-get handle 'ellipsis))
+              (drawer (overlay-get handle 'drawer)))
 
-        ;; Property to keep explicit drawer state.
-        (overlay-put handle 'collapsed nil)
+          ;; Property to keep explicit drawer state.
+          (overlay-put handle 'collapsed nil)
 
-        (overlay-put ellipsis 'before-string nil)
+          (overlay-put ellipsis 'before-string nil)
 
-        (overlay-put ellipsis 'after-string nil)
+          (overlay-put ellipsis 'after-string nil)
 
-        ;; Show drawer
-        (overlay-put drawer 'display nil)
+          ;; Show drawer
+          (overlay-put drawer 'display nil)
 
-        (store-substring (overlay-get title 'before-string) depth ?\N{U+25BC}))
+          (store-substring (overlay-get title 'before-string) depth ?\N{U+25BC}))
 
-      (nop--recurse-for-subtree #'nop--adjust-subtree-overlays d nil))))
+        (nop--recurse-for-subtree #'nop--adjust-subtree-overlays d nil)))))
 
 (defun nop--nav-collapse-node (d)
-  (with-slots (kind depth handle) d
-    (unless (eq :default kind)
-      (let ((title (overlay-get handle 'title))
-            (ellipsis (overlay-get handle 'ellipsis))
-            (drawer (overlay-get handle 'drawer))
-            (face (list (elt nop--shadow-faces depth)
-                        (elt nop--drawer-faces depth))))
+  (when (nop--tree-directive-p d)
+    (with-slots (kind depth handle) d
+      (unless (eq :default kind)
+        (let ((title (overlay-get handle 'title))
+              (ellipsis (overlay-get handle 'ellipsis))
+              (drawer (overlay-get handle 'drawer))
+              (face (list (elt nop--shadow-faces depth)
+                          (elt nop--drawer-faces depth))))
 
-        ;; Jump to the beginning of the directive that will be collapsed.
-        (nop--nav-jump-to-directive d)
+          ;; Jump to the beginning of the directive that will be collapsed.
+          (nop--nav-jump-to-directive d)
 
-        ;; Property to keep explicit drawer state.
-        (overlay-put handle 'collapsed t)
+          ;; Property to keep explicit drawer state.
+          (overlay-put handle 'collapsed t)
 
-        (overlay-put ellipsis 'before-string
-                     (propertize (format "%s\N{U+22EF}" (make-string depth ?\s)) 'face face))
+          (overlay-put ellipsis 'before-string
+                       (propertize (format "%s\N{U+22EF}" (make-string depth ?\s)) 'face face))
 
-        (overlay-put ellipsis 'after-string
-                     (propertize " " 'face face
-                                 'display '(space :align-to (- right-margin 25))))
+          (overlay-put ellipsis 'after-string
+                       (propertize " " 'face face
+                                   'display '(space :align-to (- right-margin 25))))
 
-        ;; Hide drawer
-        ;; A blank line is required to maintain correct margins on collapse.
-        (overlay-put drawer 'display (propertize
-                                      (format "[ %s ] (%s) \n"
-                                              (upcase (substring (symbol-name kind))) depth)
-                                      'face face))
+          ;; Hide drawer
+          ;; A blank line is required to maintain correct margins on collapse.
+          (overlay-put drawer 'display (propertize
+                                        (format "[ %s ] (%s) \n"
+                                                (upcase (substring (symbol-name kind))) depth)
+                                        'face face))
 
-        (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6}))
+          (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6}))
 
-      ;; Necessary to prevent properties of nested collapsed overlays from
-      ;; leaking into visual representation of the collapsed ancestor.
-      (nop--recurse-for-subtree #'nop--adjust-subtree-overlays d t))))
+        ;; Necessary to prevent properties of nested collapsed overlays from
+        ;; leaking into visual representation of the collapsed ancestor.
+        (nop--recurse-for-subtree #'nop--adjust-subtree-overlays d t)))))
 
 (defun nop-nav-toggle-node-visibility ()
   (interactive)
   (let* ((handle (nop--get-nearest-handle))
          (drawer (overlay-get handle 'drawer))
          (directive (overlay-get handle 'directive)))
-    ;; (message "Directive : %s" (oref directive description))
     (if (overlay-get handle 'collapsed)
         (nop--nav-expand-node directive)
       (nop--nav-collapse-node directive))))
@@ -322,21 +489,25 @@
 
 (defun nop-nav-expand-subtree-from-body ()
   (interactive)
-  (nop--apply-immediate-children #'nop--nav-expand-node (nop--find-hovered-node)))
+  (nop-assert-cached-active)
+  (nop--apply-immediate-children #'nop--nav-expand-node nop--active-body-node))
 
 (defun nop-nav-expand-subtree-from-head ()
   (interactive)
-  (nop--apply-all-children #'nop--nav-expand-node (nop--find-hovered-node t)))
+  (nop-assert-cached-active t)
+  (nop--apply-all-children #'nop--nav-expand-node nop--active-head-node))
 
 (defun nop-nav-collapse-subtree-from-body ()
   (interactive)
-  (let ((d (nop--find-hovered-node)))
+  (nop-assert-cached-active)
+  (let ((d nop--active-body-node))
     (nop--apply-immediate-children #'nop--nav-collapse-node d)
     (nop--nav-jump-to-directive d)))
 
 (defun nop-nav-collapse-subtree-from-head ()
   (interactive)
-  (let ((d (nop--find-hovered-node t)))
+  (nop-assert-cached-active t)
+  (let ((d nop--active-head-node))
     (nop--apply-all-children #'nop--nav-collapse-node d)
     (nop--nav-jump-to-directive d)))
 
@@ -377,7 +548,7 @@
                                (priority 100)
                                (face ,h-face))))))
 
-(defun nop--generate-tree-overlay (bpos epos depth &optional line-prefix handle)
+(defun nop--generate-tree-overlay (bpos epos depth &optional prefixes handle)
   "Generate title overlay for the directive."
   (nop--generate-overlay (nop--range :begin bpos :end epos)
                          `((priority ,depth)
@@ -385,18 +556,21 @@
                                          nop--drawer-faces)
                                        depth))
                            (category nop--overlay-tree)
-                           (line-prefix ,line-prefix))))
+                           (prefixes ,prefixes)
+                           ;; CAR is default prefix, CDR is active prefix.
+                           (line-prefix ,(car prefixes)))))
 
 (defun nop--generate-tree-overlays (d max-depth depth-list)
   (with-slots (depth kind positions) d
     (let* ((m-face (elt nop--drawer-faces depth))
            (title (nop--generate-title-overlay d)))
 
+      (oset d title title)
       ;; Create the overlay representing a head node, and its continuations.
       ;; Overlay for the tree directive encompass all continuations.
       ;; So we skip merged directives.
       (unless (eq kind :merged)
-        (seq-let [prefix prefix-h]
+        (seq-let [prefix prefix-h prefix-a]
             (nop--generate-margin-strings max-depth (cons depth depth-list))
           (let* ((enode (nop--get-last-node-of-subtree d))
                  (bgn-pos (oref positions begin))
@@ -404,9 +578,9 @@
                  (end-pos (if (oref enode next-node)
                               (oref (oref (oref enode next-node) positions) begin)
                             (buffer-end 1)))
-                 (handle (nop--generate-tree-overlay bgn-pos mid-pos depth prefix-h t))
+                 (handle (nop--generate-tree-overlay bgn-pos mid-pos depth (cons prefix-h prefix-a) t))
                  (ellipsis (nop--generate-tree-overlay mid-pos mid-pos depth))
-                 (drawer (nop--generate-tree-overlay mid-pos end-pos depth prefix)))
+                 (drawer (nop--generate-tree-overlay mid-pos end-pos depth (list prefix))))
             (overlay-put drawer 'handle handle)
             (overlay-put handle 'handle handle)
             (overlay-put handle 'title title)
@@ -444,6 +618,7 @@
 (defvar-local nop--fringe-mode-copy nil)
 (defvar-local nop--truncate-lines-copy nil)
 (defvar-local nop--buffer-read-only-copy nil)
+(defvar-local nop--last-point nil)
 
 (defun nop--before-read-mode (max-depth)
   (let ((margin-width (* (1+ max-depth) nop--ov-margin-block-width)))
@@ -459,6 +634,7 @@
   (cl-shiftf nop--truncate-lines-copy truncate-lines t))
 
 (defun nop--after-read-mode ()
+  (setf nop--last-point nil)
   ;; (setf left-margin-width nop--left-margin-width-copy)
   (setf right-margin-width nop--right-margin-width-copy)
   ;; Necessary to activate margin width change.
@@ -482,7 +658,6 @@
     (dolist (d merged)
       (nop--call-for-each-node
        (lambda (d depth-list max-depth)
-         ;; (message "Applying fn to %s - %s" (oref d depth) (oref d description))
          (if (nop--tree-directive-p d)
              (nop--generate-tree-overlays d max-depth depth-list)
            (nop--generate-overlay (nop--info-r (oref d positions))
@@ -513,10 +688,18 @@
       (delete-overlay (overlay-get (oref default handle) 'title))
       (delete-overlay (oref default handle))))
 
+  (setf nop--active-head-node (nop--find-hovered-node t))
+  (setf nop--active-body-node (nop--find-hovered-node))
+  (add-hook 'post-command-hook #'nop--read-post-command 0 t)
+
   (when collapsed
     (recenter)))
 
 (defun nop--read-disable ()
+  (remove-hook 'post-command-hook #'nop--read-post-command t)
+  (setf nop--active-head-node nil)
+  (setf nop--active-body-node nil)
+
   (nop--after-read-mode))
 
 ;;

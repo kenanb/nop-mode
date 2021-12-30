@@ -349,6 +349,11 @@ The tree directive that marks the end of the immediate contents of this.")
               :documentation "
 The tree directive of which the immediate contents are terminated by this.")
 
+   (title :initform nil
+           :type (or overlay null)
+           :documentation "
+Overlay representing the title of directive.")
+
    (handle :initform nil
            :type (or overlay null)
            :documentation "
