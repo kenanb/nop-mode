@@ -767,7 +767,11 @@
   :lighter " Nop-Read"
   ;; The minor mode bindings.
   :keymap (let ((map (make-sparse-keymap)))
+
+            ;; Ensure tab toggles visibility regardless of key translation.
+            (define-key map (kbd "TAB") #'nop-nav-toggle-node-visibility)
             (define-key map (kbd "<tab>") #'nop-nav-toggle-node-visibility)
+
             (define-key map (kbd "<mouse-1>") #'nop-nav-toggle-node-visibility)
             (define-key map (kbd "C-+") #'nop-nav-expand-subtree-focused)
             (define-key map (kbd "+") #'nop-nav-expand-subtree-primary)
