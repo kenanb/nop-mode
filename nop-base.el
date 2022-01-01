@@ -490,15 +490,35 @@ The identifier of the label.")))
            ((d nop--kind-directive))
            (oset d kind
                  (cl-case (nop--kind-char (oref d positions))
-                   (?. :continue)
+                   (?- :none)
+                   (?. :continuation)
                    (?> :link)
-                   (?? :conditional)
-                   (?I :iteration)
-                   (?C :class)
-                   (?F :function)
-                   (?R :region)
+
+                   (?N :note)
                    (?T :todo)
-                   (?B :branch))))
+                   (?K :kludge)
+
+                   (?H :header)
+                   (?P :preprocessor)
+
+                   (?D :declaration)
+                   (?F :function)
+                   (?M :macro)
+                   (?C :class)
+
+                   (?B :block)
+                   (?I :iteration)
+                   (?R :recursion)
+                   (?S :selection)
+                   (?? :condition)
+                   (?{ :scope-init)
+                   (?} :scope-exit)
+
+                   (?A :assertion)
+                   (?L :logging)
+                   (?E :exception)
+                   (?V :validation)
+                   (?G :guard-clause))))
 
   (:method :after
            ((d nop--jump-directive))
@@ -576,7 +596,7 @@ Leaves cursor at the end of comment. Assumes cursor is looking at comment-positi
 ;;
 ;;
 
-(defun nop--merge-continue (source directives)
+(defun nop--merge-continuation (source directives)
   "Returns either a keyword describing a condition, or the result of nop--merge-new-source.
 If the list has exhausted, continuation is invalid."
   (if (not directives) :exhausted
@@ -584,7 +604,7 @@ If the list has exhausted, continuation is invalid."
            (skip (or (not (nop--tree-directive-p target))
                      (member (oref target kind) '(:ignore :merged))
                      (> (oref target depth) (oref source depth)))))
-      (if skip (nop--merge-continue source (cdr directives))
+      (if skip (nop--merge-continuation source (cdr directives))
         (if (< (oref target depth) (oref source depth)) :scope-exit
           (nop--merge-new-source directives))))))
 
@@ -592,9 +612,9 @@ If the list has exhausted, continuation is invalid."
   "Assumes SOURCE is a tree directive. Returns list of continuations, or nil if there was an error."
   (with-slots (description kind depth) source
     (cl-case kind
-      (:continue
+      (:continuation
        (setf kind :ignore)
-       (pcase (nop--merge-continue source (cdr directives))
+       (pcase (nop--merge-continuation source (cdr directives))
          (:scope-exit
           (lwarn 'nop :debug
                  "%s No primary node at depth %s to merge continuation prefixed '%s'."
@@ -620,7 +640,7 @@ If the list has exhausted, continuation is invalid."
                    ;; Only process tree directives.
                    (nop--tree-directive-p source)
                    ;; Skip (possibly already populated) primary node.
-                   (eq (oref source kind) :continue)
+                   (eq (oref source kind) :continuation)
                    ;; Returned continuation list is ordered bottom-up.
                    (reverse (nop--merge-new-source directives)))))
       (oset (car clist) continuations (cdr clist))))
