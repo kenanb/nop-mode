@@ -97,27 +97,24 @@ information calculated based on the current DEFAULT face."
 
       (nop--set-faces "nop-read-drawer-"
                       (lambda (depth)
-                        (list :background (nop--color depth .25 ch bg)))))
+                        (list :background (nop--color depth .25 ch bg))))
+
+      (seq-let [bg-handle fg-handle ch-handle] (nop--calculate-color-info -3000)
+        (nop--set-faces "nop-read-handle-"
+                        (lambda (depth)
+                          (list :overline (nop--gen-color fg)
+                                :background (nop--color depth .25 ch-handle bg-handle)))))
+
+      (seq-let [bg-active fg-active ch-active] (nop--calculate-color-info '(-20000 -10000 0))
+        (nop--set-faces "nop-read-handle-active-"
+                        (lambda (depth)
+                          (list :overline (nop--gen-color fg)
+                                :background (nop--color depth -.1 ch-active bg-active))))))
 
     (seq-let [bg fg ch] (nop--calculate-color-info -20000)
       (nop--set-faces "nop-read-shadow-"
                       (lambda (depth)
-                        (list :foreground (nop--color depth .25 ch bg)))))
-
-    (let* ((handle-color-info (nop--calculate-color-info '(-2000 -1000 0)))
-           (handle-overline (nop--gen-color (elt handle-color-info 1))))
-
-      (seq-let [bg fg ch]  handle-color-info
-        (nop--set-faces "nop-read-handle-"
-                        (lambda (depth)
-                          (list :overline handle-overline
-                                :background (nop--color depth .25 ch bg)))))
-
-      (seq-let [bg fg ch] (nop--calculate-color-info '(-20000 -10000 0))
-        (nop--set-faces "nop-read-handle-active-"
-                        (lambda (depth)
-                          (list :overline handle-overline
-                                :background (nop--color depth -.1 ch bg))))))))
+                        (list :foreground (nop--color depth .25 ch bg)))))))
 
 (defun nop--check-faces-dirty (&rest r)
   (seq-let [bg fg ch] (nop--calculate-color-info)
