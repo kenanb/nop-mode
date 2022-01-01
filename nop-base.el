@@ -65,17 +65,20 @@
 
 (defconst nop--overlay-max-depth 9)
 
-(defun nop--calculate-color-info (face offset)
+(defun nop--calculate-color-info (&optional offset face)
   (let* ((scale (truncate (* (+ .75 nop--scale-coefficient)
                              (1+ nop--overlay-max-depth))))
-         (bg (color-values (face-attribute face :background)))
-         (fg (color-values (face-attribute face :foreground)))
+         (bg (color-values (face-attribute (or face 'default) :background)))
+         (fg (color-values (face-attribute (or face 'default) :foreground)))
          (change (cl-mapcar (lambda (x y) (/ (- x y) scale)) fg bg))
          (magnitude (cl-loop with m = 0 with m-abs = 0
                              for c in change for c-abs = (abs c)
                              if (> c-abs m-abs) do (setf m c m-abs c-abs)
                              finally return m))
-         (uniform-base-offset (if (listp offset) offset (list offset offset offset)))
+         (uniform-base-offset (cond
+                               ((null offset) '(0 0 0))
+                               ((listp offset) offset)
+                               (t (list offset offset offset))))
          (absolute-base-offset (if (cl-minusp magnitude)
                                    uniform-base-offset
                                  (mapcar #'- uniform-base-offset))))
@@ -93,14 +96,20 @@
   (format "#%s" (cl-loop for v in component-velocities and o in component-offsets
                          concat (nop--color-component index acceleration v o))))
 
-(defun nop--gen-faces (name-prefix inherit doc-fmt fn)
+(defun nop--gen-faces (name-prefix inherit doc-fmt &rest specs)
   (cl-loop for depth to nop--overlay-max-depth
            collect
            (custom-declare-face
             (intern (concat name-prefix (number-to-string depth)))
-            `((t :inherit ,inherit
-                 ,@(funcall fn depth)))
+            `((t :inherit ,inherit ,@specs))
             (format doc-fmt depth))))
+
+(defun nop--set-faces (name-prefix fn)
+  (cl-loop for depth to nop--overlay-max-depth
+           do
+           (apply #'set-face-attribute
+                  (intern (concat name-prefix (number-to-string depth))) nil
+                  (funcall fn depth))))
 
 ;;
 ;;
