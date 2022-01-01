@@ -1,3 +1,5 @@
+;;;; -*- lexical-binding: t -*-
+
 ;;; nop-read.el --- Navigation-centric minor mode complement for nop-mode.
 
 ;; Copyright (C) 2021 Kenan Bölükbaşı
@@ -38,47 +40,63 @@
   :version "0.1"
   :group 'nop-overlay)
 
-(defface nop-read-title '((t
-                           :weight semi-bold
-                           :distant-foreground "rosy brown"
-                           :foreground "saddle brown"))
-  "Title face for nop-read-mode overlays."
-  :version "0.1"
-  :group 'nop-overlay)
+(defconst nop--scale-coefficient 1.75)
 
-(defface nop-read-title-active '((t
-                                  :weight semi-bold
-                                  :distant-foreground "#FCFCFC"
-                                  :foreground "#121212"))
-  "Title face for nop-read-mode overlays."
-  :version "0.1"
-  :group 'nop-overlay)
+(defvar nop--drawer-faces)
+(defvar nop--handle-faces)
+(defvar nop--handle-active-faces)
+(defvar nop--shadow-faces)
 
-(defconst nop--drawer-faces
-  (nop--gen-faces "nop-read-drawer-" 'nop-read-base
-                  "Drawer content box face for depth %s."
-                  (lambda (depth)
-                    (list :background (nop--color depth -.5 '(#xA #xB #xC) '(#xFD #xF8 #xF0))))))
+(defun nop--prepare-faces ()
+  "Generates faces that have their background and foreground color
+information calculated based on the current DEFAULT face."
+  (let* ((handle-color-info (nop--calculate-color-info 'default '(-2000 -1000 0)))
+         (handle-overline (nop--gen-color (elt handle-color-info 1))))
 
-(defconst nop--handle-faces
-  (nop--gen-faces "nop-read-handle-" 'nop-read-base
-                  "Drawer handle line face for depth %s."
-                  (lambda (depth)
-                    (list :overline "black"
-                          :background (nop--color depth .25 '(#x9 #x9 #x5) '(#xED #xED #xE2))))))
+    (seq-let [bg fg ch] (nop--calculate-color-info 'default 0)
+      (defface nop-read-title `((t
+                                 :weight semi-bold
+                                 :foreground ,(nop--color (* nop--scale-coefficient
+                                                             nop--overlay-max-depth) .25 ch bg)))
+        "Title face for nop-read-mode overlays."
+        :version "0.1"
+        :group 'nop-overlay)
 
-(defconst nop--handle-active-faces
-  (nop--gen-faces "nop-read-handle-active-" 'nop-read-base
-                  "Drawer content box face for depth %s."
-                  (lambda (depth)
-                    (list :overline "black"
-                          :background (nop--color depth -.1 '(#x9 #x9 #x5) '(#xC0 #xD8 #xFD))))))
+      (defface nop-read-title-active `((t
+                                        :weight semi-bold
+                                        :foreground ,(nop--color 0 .25 ch fg)))
+        "Title face for nop-read-mode overlays."
+        :version "0.1"
+        :group 'nop-overlay)
 
-(defconst nop--shadow-faces
-  (nop--gen-faces "nop-read-shadow-" 'nop-read-base
-                  "Summary line face for depth %s, active when drawer is closed."
-                  (lambda (depth)
-                    (list :foreground (nop--color depth .25 '(7 7 7) '(#x9E #x9E #x9E))))))
+      (setf nop--drawer-faces
+            (nop--gen-faces "nop-read-drawer-" 'nop-read-base
+                            "Drawer content box face for depth %s."
+                            (lambda (depth)
+                              (list :background (nop--color depth .25 ch bg))))))
+
+    (seq-let [bg fg ch]  handle-color-info
+      (setf nop--handle-faces
+            (nop--gen-faces "nop-read-handle-" 'nop-read-base
+                            "Drawer handle line face for depth %s."
+                            (lambda (depth)
+                              (list :overline handle-overline
+                                    :background (nop--color depth .25 ch bg))))))
+
+    (seq-let [bg fg ch] (nop--calculate-color-info 'default '(-20000 -10000 0))
+      (setf nop--handle-active-faces
+            (nop--gen-faces "nop-read-handle-active-" 'nop-read-base
+                            "Drawer content box face for depth %s."
+                            (lambda (depth)
+                              (list :overline handle-overline
+                                    :background (nop--color depth -.1 ch bg))))))
+
+    (seq-let [bg fg ch] (nop--calculate-color-info 'default -20000)
+      (setf nop--shadow-faces
+            (nop--gen-faces "nop-read-shadow-" 'nop-read-base
+                            "Summary line face for depth %s, active when drawer is closed."
+                            (lambda (depth)
+                              (list :foreground (nop--color depth .25 ch bg))))))))
 
 ;;
 ;;
@@ -667,6 +685,9 @@
 (defvar-local nop--buffer-read-only-copy nil)
 
 (defun nop--before-read-mode (max-depth)
+
+  (nop--prepare-faces)
+
   (let ((margin-width (* (1+ max-depth) nop--ov-margin-block-width)))
     ;; (cl-shiftf nop--left-margin-width-copy left-margin-width margin-width)
     (cl-shiftf nop--right-margin-width-copy right-margin-width margin-width))
