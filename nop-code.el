@@ -47,8 +47,13 @@
   (dolist (d (nop--parse-buffer))
     (nop--call-for-each-node
      (lambda (d depth-list)
-       (nop--generate-overlay (nop--outer-r (oref d positions))
-                              nop--code-overlay))
+       (with-slots (positions) d
+         (nop--generate-overlay
+          (funcall (if (zerop (nop--range-length (nop--extinfo-r positions)))
+                       #'nop--line-r
+                     #'nop--outer-r)
+                   positions)
+          nop--code-overlay)))
      d)))
 
 (defun nop--code-disable ()
