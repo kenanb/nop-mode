@@ -480,8 +480,7 @@ Expansion specified in anchor overrides expansion specified in label.")
   (:method ((d nop--tree-directive))
            (if (eq :default (oref d kind))
                (format "Default[ %s ]" (buffer-name))
-             (let ((info (nop--info-string (oref d positions))))
-               (if (> (length info) 10) (substring info 0 10) info))))
+             (nop--info-string (oref d positions))))
 
   (:method ((d nop--bookmark-directive))
            (format "Bookmark[ %s ]" (oref d path)))
@@ -511,6 +510,8 @@ Expansion specified in anchor overrides expansion specified in label.")
                    (?N :note)
                    (?T :todo)
                    (?K :kludge)
+
+                   (?U :unit-test)
 
                    (?H :header)
                    (?P :preprocessor)

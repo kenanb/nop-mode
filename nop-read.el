@@ -713,6 +713,7 @@ information calculated based on the current DEFAULT face."
 (defvar-local nop--fringe-mode-copy nil)
 (defvar-local nop--truncate-lines-copy nil)
 (defvar-local nop--buffer-read-only-copy nil)
+(defvar-local nop--header-line-format-copy nil)
 
 (defun nop--before-read-mode (max-depth)
 
@@ -791,10 +792,16 @@ information calculated based on the current DEFAULT face."
     (setf nop--active-focused (cdr new-nodes)))
   (add-hook 'post-command-hook #'nop--read-post-command 0 t)
 
-  (when collapsed
-    (recenter)))
+  (when collapsed (recenter))
+
+  (setf nop--header-line-format-copy header-line-format)
+
+  (setq header-line-format
+        '(:eval (list (nop--get-description nop--active-primary)))))
+
 
 (defun nop--read-disable ()
+  (setf header-line-format nop--header-line-format-copy)
   (remove-hook 'post-command-hook #'nop--read-post-command t)
   (setf nop--active-primary nil)
   (setf nop--active-focused nil)
