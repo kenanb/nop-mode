@@ -319,10 +319,10 @@ information calculated based on the current DEFAULT face."
               nil
               "Cached primary [ %s (%s) ] used in %S is outdated: [ %s (%s) ]"
               nop--last-point
-              (oref nop--active-primary description)
+              (nop--get-description nop--active-primary)
               (cadr (backtrace-frame 7))
               (point)
-              (oref (overlay-get (nop--get-nearest-handle) 'directive) description))))
+              (nop--get-description (overlay-get (nop--get-nearest-handle) 'directive)))))
 
 (define-inline nop-assert-cached-focused ()
   (inline-quote
@@ -331,11 +331,11 @@ information calculated based on the current DEFAULT face."
               nil
               "Cached focused [ %s (%s) ] used in %S is outdated: [ %s (%s) ]"
               nop--last-point
-              (oref nop--active-focused description)
+              (nop--get-description nop--active-focused)
               (cadr (backtrace-frame 7))
               (point)
-              (oref (nop--locate-focused (overlay-get (nop--get-nearest-handle) 'directive))
-                    description))))
+              (nop--get-description (nop--locate-focused
+                                     (overlay-get (nop--get-nearest-handle) 'directive))))))
 
 ;; (define-inline nop-assert-cached-primary () nil)
 ;; (define-inline nop-assert-cached-focused () nil)
@@ -688,12 +688,12 @@ information calculated based on the current DEFAULT face."
   (let ((indent (make-string current-depth ?\s)))
     ;; higher is higher priority
     (cons '(priority 100)
-          (cond ((nop--label-directive-p d)
-                 `((help-echo "LABEL")
+          (cond ((nop--bookmark-directive-p d)
+                 `((help-echo "BOOKMARK")
                    (before-string ,(propertize (format "%s\N{U+1433}" indent) 'face 'header-line))
                    (face header-line)))
-                ((nop--jump-directive-p d)
-                 `((help-echo "JUMP")
+                ((nop--anchor-directive-p d)
+                 `((help-echo "ANCHOR")
                    (before-string ,(propertize (format "%s\N{U+140A}" indent) 'face 'highlight))
                    (face highlight)))
                 (t

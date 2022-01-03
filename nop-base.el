@@ -209,7 +209,7 @@
 (defconst nop--dprefix-length (length nop--dprefix-string))
 (defconst nop--dsuffix-length 1) ; single char
 
-(defconst nop--jump-expansion-default 1)
+(defconst nop--expansion-default 1)
 
 (defclass nop--positions ()
   ((begin     :initarg :begin
@@ -320,77 +320,103 @@ It can still decide that the contents are invalid, and return nil."
 ;;
 
 (defclass nop--directive ()
-  ((description :initform "No description"
-                :type string)
-   (positions :initarg :positions
-              :initform (make-instance 'nop--positions)
-              :type nop--positions))
-  :documentation
-  "Represents a parsed nop directive entry.")
 
+  ((path
+    :initform nil
+    :type (or string null)
+    :documentation "
+The path associated with the directive.")
 
-(defclass nop--jump-directive (nop--directive)
-  ((target :initform "invalid"
-           :type string
-           :documentation "
-Label of the target location to jump.")
+   (positions
+    :initarg :positions
+    :initform (make-instance 'nop--positions)
+    :type nop--positions)
 
    (expansion :initform 0
               :type fixnum
               :documentation "
-Number of levels that should be expanded on jump at target location.")))
+Number of levels that should be expanded on jump at target location."))
 
-
-(defclass nop--kind-directive (nop--directive)
-
-  ((kind :initform :default
-         :type keyword
-         :documentation "
-The role and semantics of directive."))
+  :documentation
+  "Represents a parsed nop directive entry."
 
   :abstract t)
 
 
-(defclass nop--tree-directive (nop--kind-directive)
+(defclass nop--label-directive (nop--directive)
 
-  ((depth :initarg :depth
-          :initform 0
-          :type (or fixnum keyword)
-          :documentation "
+  ()
+
+  :documentation
+  "Represents a widget that can be jump target."
+
+  :abstract t)
+
+(defclass nop--bookmark-directive (nop--label-directive)
+
+  ()
+
+  :documentation
+  "A label that's minimally visible in read mode. The calculated expansion applies to the
+tree node the bookmark is a child of.")
+
+
+(defclass nop--tree-directive (nop--label-directive)
+
+  ((depth
+    :initarg :depth
+    :initform 0
+    :type (or fixnum keyword)
+    :documentation "
 The nesting level of the tree directive.")
 
-   (children  :initform nil
-              :type list
-              :documentation "
+   (kind
+    :initform :default
+    :type keyword
+    :documentation "
+The role and semantics of directive.")
+
+   (children
+    :initform nil
+    :type list
+    :documentation "
 The nesting level of the tree directive.")
 
-   (continuations  :initform nil
-                   :type list
-                   :documentation "
+   (continuations
+    :initform nil
+    :type list
+    :documentation "
 The nesting level of the tree directive.")
 
-   (next-node :initform nil
-              :type (or nop--tree-directive null)
-              :documentation "
+   (next-node
+    :initform nil
+    :type (or nop--tree-directive null)
+    :documentation "
 The tree directive that marks the end of the immediate contents of this.")
 
-   (prev-node :initform nil
-              :type (or nop--tree-directive null)
-              :documentation "
+   (prev-node
+    :initform nil
+    :type (or nop--tree-directive null)
+    :documentation "
 The tree directive of which the immediate contents are terminated by this.")
 
-   (arbitrary :initform nil
-              :type list
-              :documentation "
-Arbitrary attributes associated with the directive.")))
+   (arbitrary
+    :initform nil
+    :type list
+    :documentation "
+Arbitrary attributes associated with the directive."))
+
+  :documentation
+  "A label that represents a foldable entity. The calculated expansion applies directly to the node.")
 
 
-(defclass nop--label-directive (nop--kind-directive)
+(defclass nop--anchor-directive (nop--directive)
 
-  ((name :initform "invalid"
-         :type string
-         :documentation "
-The identifier of the label.")))
+  ()
+
+  :documentation
+  "Represents a widget that allows jumping to a label widget with the specified path.
+Expansion specified in anchor overrides expansion specified in label.")
 
 ;;
 ;;
@@ -419,35 +445,25 @@ The identifier of the label.")))
            (list (nop--fmt-slot "identity"
                                 (sxhash-eq d))
                  (nop--fmt-slot "description"
-                                (oref d description))
+                                (nop--get-description d))
+                 (nop--fmt-slot "path"
+                                (oref d path))
+                 (nop--fmt-slot "expansion"
+                                (oref d expansion))
                  (nop--fmt-slot "positions"
                                 (nop--debug (oref d positions)))))
 
-  (:method ((d nop--kind-directive))
-           (cons (nop--fmt-slot "kind"
-                                (oref d kind))
-                 (cl-call-next-method)))
-
   (:method ((d nop--tree-directive))
-           (cons (nop--fmt-slot "cont"
-                                (oref d continuations))
-                 (cons (nop--fmt-slot "children"
-                                      (length (oref d children)))
-                       (cons (nop--fmt-slot "depth"
-                                            (oref d depth))
-                             (cl-call-next-method)))))
-
-  (:method ((d nop--label-directive))
-           (cons (nop--fmt-slot "name"
-                                (oref d name))
-                 (cl-call-next-method)))
-
-  (:method ((d nop--jump-directive))
-           (cons (nop--fmt-slot "target"
-                                (oref d target))
-                 (cons (nop--fmt-slot "expansion"
-                                      (oref d expansion))
-                       (cl-call-next-method)))))
+           (apply #'list
+                  (nop--fmt-slot "cont"
+                                 (length (oref d continuations)))
+                  (nop--fmt-slot "children"
+                                 (length (oref d children)))
+                  (nop--fmt-slot "depth"
+                                 (oref d depth))
+                  (nop--fmt-slot "kind"
+                                 (oref d kind))
+                  (cl-call-next-method))))
 
 ;;
 ;;
@@ -457,24 +473,22 @@ The identifier of the label.")))
 ;;
 ;;
 
-(cl-defgeneric nop--process-extra-info (directive info-string)
+(cl-defgeneric nop--get-description (directive)
 
-  (:documentation "Parse the info section of given string.")
+  (:documentation "Get a description for directive, for debug printing.")
 
-  (:method ((d nop--directive) info-string)
-           (oset d description (if (> (length info-string) 10)
-                                   (substring info-string 0 10)
-                                 info-string)))
+  (:method ((d nop--tree-directive))
+           (if (eq :default (oref d kind))
+               (format "Default[ %s ]" (buffer-name))
+             (let ((info (nop--info-string (oref d positions))))
+               (if (> (length info) 10) (substring info 0 10) info))))
 
-  (:method ((d nop--label-directive) info-string)
+  (:method ((d nop--bookmark-directive))
+           (format "Bookmark[ %s ]" (oref d path)))
+
+  (:method ((d nop--anchor-directive))
            (cl-call-next-method)
-           (oset d description (format "Label: %s" info-string))
-           (oset d name info-string))
-
-  (:method ((d nop--jump-directive) info-string)
-           (cl-call-next-method)
-           (oset d description (format "Jump: %s" info-string))
-           (oset d target info-string)))
+           (format "Anchor[ %s ]" (oref d path))))
 
 
 (cl-defgeneric nop--parse-directive (directive)
@@ -484,13 +498,13 @@ The identifier of the label.")))
   (:method ((d nop--directive))
            (with-slots (positions) d
              ;; (lwarn 'nop :debug "Parsed directive: %s" (nop--inner-string positions))
-             (nop--process-extra-info d (nop--info-string positions))))
+             ;; TODO : Decide path!
+             ))
 
   (:method :after
-           ((d nop--kind-directive))
+           ((d nop--tree-directive))
            (oset d kind
                  (cl-case (nop--kind-char (oref d positions))
-                   (?- :none)
                    (?. :continuation)
                    (?> :link)
 
@@ -521,12 +535,18 @@ The identifier of the label.")))
                    (?G :guard-clause))))
 
   (:method :after
-           ((d nop--jump-directive))
+           ((d nop--bookmark-directive))
+           (unless (oref d path)
+             (lwarn 'nop :debug "Bookmark ( at %s ) is unreachable due to missing path."
+                    (oref (oref d positions) directive))))
+
+  (:method :after
+           ((d nop--anchor-directive))
            (oset d expansion
                  (or (get-char-code-property
                       (nop--kind-char (oref d positions))
                       'decimal-digit-value)
-                     nop--jump-expansion-default)))
+                     nop--expansion-default)))
 
   (error "Called nop--parse-directive with non-directive instance of type %s. Object is: %s"
          (type-of directive)
@@ -535,17 +555,17 @@ The identifier of the label.")))
 (defun nop--generate-directive (positions)
   (let* ((c (nop--type-char positions))
          (directive (cl-case c
-                      (?> (make-instance 'nop--jump-directive :positions positions))
 
-                      ;; Kind directives
-                      (?< (make-instance 'nop--label-directive :positions positions))
+                      (?@ (make-instance 'nop--anchor-directive :positions positions))
+
+                      ;; Label directives
                       (?. (make-instance 'nop--tree-directive :positions positions :depth :cpy))
                       (?+ (make-instance 'nop--tree-directive :positions positions :depth :inc))
                       (?- (make-instance 'nop--tree-directive :positions positions :depth :dec))
                       (t (let ((depth (get-char-code-property c 'decimal-digit-value)))
                            (if (numberp depth)
                                (make-instance 'nop--tree-directive :positions positions :depth depth)
-                             (make-instance 'nop--directive :positions positions)))))))
+                             (make-instance 'nop--bookmark-directive :positions positions)))))))
     ;; (lwarn 'nop :debug "Positions for generated directive: %s" (nop--debug positions))
     (nop--parse-directive directive)
     directive))
@@ -610,7 +630,7 @@ If the list has exhausted, continuation is invalid."
 
 (cl-defun nop--merge-new-source (directives &aux (source (car directives)))
   "Assumes SOURCE is a tree directive. Returns list of continuations, or nil if there was an error."
-  (with-slots (description kind depth) source
+  (with-slots (kind depth) source
     (cl-case kind
       (:continuation
        (setf kind :ignore)
@@ -619,13 +639,13 @@ If the list has exhausted, continuation is invalid."
           (lwarn 'nop :debug
                  "%s No primary node at depth %s to merge continuation prefixed '%s'."
                  "Invalid continuation directive found."
-                 depth description)
+                 depth (nop--get-description source))
           nil)
          (:exhausted
           (lwarn 'nop :debug
                  "%s Exhausted all nodes while trying to merge continuation prefixed '%s'."
                  "Invalid continuation directive found."
-                 description)
+                 (nop--get-description source))
           nil)
          ((pred null) nil)
          ;; Mark current entry as merged, only if the nested lookup succeeded.
@@ -748,8 +768,6 @@ If the list has exhausted, continuation is invalid."
     (goto-char (point-min))
     (let* ((default (make-instance 'nop--tree-directive))
            (directives (list default)))
-
-      (oset default description (format "Default: %s" (buffer-name)))
 
       ;; Buffer analysis pass: Generates directives.
       (while (re-search-forward "/[/*]" nil t)
