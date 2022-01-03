@@ -25,6 +25,7 @@
 (require 'seq)
 (require 'info)
 (require 'pp)
+(require 'rx)
 
 (eval-when-compile (require 'subr-x))
 
@@ -173,41 +174,75 @@
 ;;; Positions and Ranges
 ;;;
 ;;
+;;                 decor  comment
+;;       content   /     /     directive
+;;            /   /     /     /     spec             hash     path
+;;   begin   /   /     /     /     /                     \     \    suffix   end
+;;  /       /   /     /     /     /    info               \     \        |  /
+;; .       .   .     .     .     .     .                   .     .       . .
+;; |       |   |     |     |     |     |                   |     |       | |
+;; |       |/|/| ... | ... | |[|!|4|F| |I|n|f|o| |s|t|r|.| |#|3| |p|a|t|h|]|EOL
+;; |       |   |     |     |     |   | |                 |   | | |       | |
+;; '       '   '     '     '     '   ' '                 '   ' ' '       ' '
+;;  \_____/ \_/       \___/ \___/ \_/   \_______________/     V   \_____/ V
+;;      |    |          |     |    |             |            |      |    |
+;;      | cprefix       |     |   dspec       intinfo       ispec    | dsuffix
+;;      |            extinfo  |                                  pathinfo
+;; indent                  dprefix
 ;;
+;;                                \_______________ inner _______________/
 ;;
-;;                  comment
-;;       content   /     directive
-;;            /   /     /     spec
-;;   begin   /   /     /     /                                       end
-;;  /       /   /     /     /  info                         suffix  /
-;; .       .   .     .     .   .                                 . .
-;; |       |   |     |     |   |                                 | |
-;; | | | | |/|/| ... | |[|!|4|.| |N|a|r|r|a|t|i|v|e| |t|e|x|t|.| |]|EOL
-;; |       |   |     |     |   |                                 | |
-;; '       '   '     '     '   '                                 ' '
-;;  \_____/ \_/ \___/ \___/ \_/ \_______________________________/ V
-;;      |    |    |     |    |                 |                  |
-;;      | cprefix |     |  dspec            intinfo            dsuffix
-;;      |      extinfo  |
-;; indent            dprefix
+;;                            \___________________ outer _________________/
 ;;
-;;                          \_______________ inner _____________/
+;;              \_______________________________ comment _________________/
 ;;
-;;                      \___________________ outer _______________/
+;;          \___________________________________ content _________________/
 ;;
-;;              \_________________________ comment _______________/
-;;
-;;          \_____________________________ content _______________/
-;;
-;;  \________________________________________ line _______________/
+;;  \______________________________________________ line _________________/
 
 (defconst nop--dprefix-string " [!")
 (defconst nop--dsuffix-char ?\])
 
-(defconst nop--cprefix-length 2) ; "//"
-(defconst nop--dspec-length 2) ; Example: "3C"
-(defconst nop--dprefix-length (length nop--dprefix-string))
-(defconst nop--dsuffix-length 1) ; single char
+(defun nop--regexp-for-lang (cprefix decorations)
+  (rx-to-string
+   `(seq line-start
+
+         ;; code ( Not allowed for tree nodes )
+         (group-n 1 (*? any))
+
+         ;; indent
+         (* blank)
+
+         ;; cprefix
+         (group-n 2 ,cprefix)
+
+         ;; decor
+         (* (any blank ,@decorations))
+
+         ;; extinfo
+         (group-n 3 (* any))
+
+         ;; dprefix
+         ,nop--dprefix-string
+
+         ;; dspec
+         (group-n 4 (* (any alnum "{}<>?@." ?+ ?-)))
+
+         (? ?\s
+            ;; inner info
+            (? (group-n 5 (* any))
+               ?\s))
+
+         (? ?#
+            ;; ispec
+            (group-n 6 (* digit))
+
+            (? ?\s
+               ;; identifier
+               (group-n 7 (* (any alnum ?- ?_)))))
+
+         ;; line-end
+         ,nop--dsuffix-char line-end) t))
 
 (defconst nop--expansion-default 1)
 
@@ -237,22 +272,6 @@
               :initform 0
               :type fixnum))
   "Represents the change positions.")
-
-(defun nop--make-positions (begin comment directive end)
-  "Assumes cursor is looking at directive.
-This call only assumes that a valid directive identifier is found.
-It can still decide that the contents are invalid, and return nil."
-  (nop--positions :begin begin
-                  ;; Comment relative
-                  :content (- comment nop--cprefix-length)
-                  :comment comment
-                  ;; Directive relative
-                  :directive directive
-                  :spec (+ directive nop--dprefix-length)
-                  :info (+ directive nop--dprefix-length nop--dspec-length)
-                  ;; End-relative
-                  :suffix (- end nop--dsuffix-length)
-                  :end end))
 
 (cl-defmacro define-nop--range-generator (fn-sym
                                           bgn-key
@@ -571,39 +590,99 @@ Expansion specified in anchor overrides expansion specified in label.")
     (nop--parse-directive directive)
     directive))
 
-(cl-defun nop--generate-directive-positions (&aux (comment-pos (point))
-                                                  begin-pos
-                                                  directive-pos
-                                                  end-pos)
+;;
+;;
+;;;
+;;; Language Specific Parser
+;;;
+;;
+;;
+
+(defvar-local nop--parser nil
+  "Active parser for the buffer.")
+
+(defvar nop-major-mode-alist nil
+  "Parser mappings for supported major modes.")
+
+(defclass nop--directive-parser ()
+  ((matches
+    :type list
+    :initform (make-list 16 nil)
+    :documentation
+    "Match data to reuse during parse.")
+   (lookup-regexp
+    :allocation :class
+    :type string
+    :documentation
+    "Expression used for initial beginning-of-comment lookup.
+This must match both single line and multiline comment types for the language.")
+   (comment-prefix
+    :allocation :class
+    :type string
+    :documentation
+    "Single line comment prefix for language.
+The actual NOP directives are only searched in single line comments.")
+   (decor-regexp-set
+    :initarg :decoration
+    :type list
+    :documentation
+    "List of characters used to match possible decorative prefix from the beginning of directive info.")
+   (directive-regexp
+    :allocation :class
+    :type (or string null)
+    :initform nil
+    :documentation
+    "Automatically calculated during parser instantiation.")))
+
+(cl-defmethod initialize-instance :after
+  ((this nop--directive-parser) &optional slots)
+  (unless (oref this directive-regexp)
+    (oset this directive-regexp
+          (nop--regexp-for-lang (oref this comment-prefix)
+                                (oref this decor-regexp-set)))))
+
+(cl-defgeneric nop--skip-over-multiline (parser)
+  (:documentation "Checks if immediately preceeding comment match indicates a multiline comment.
+In case of multiline, leaves point immediately past the end of multiline comment, and returns T.
+Otherwise, leaves point at the current location, and returns NIL.")
+
+  nil)
+
+(cl-defun nop--generate-directive-positions (parser &aux (comment-pos (point)))
   "Locates a possible nop directive in comment, leaving cursor at the end of comment.
 Assumes cursor is looking at comment-position."
-  (if (eq (preceding-char) ?*)
+  (if (nop--skip-over-multiline parser) :unsupported-comment-style
 
-      ;; Multi-line comment. Unsupported.
-      (progn (search-forward "*/") :unsupported-comment-style)
-
-    ;; Single-line comment.
-    (setf begin-pos (line-beginning-position))
-
-    ;; Start from end and possibly prepend comment outside the field as description.
-    (end-of-line)
-    (setf end-pos (point))
-    (save-excursion
-      (cond
-       ((not (eq (preceding-char) nop--dsuffix-char)) :no-directive-candidate)
-       ((not (search-backward nop--dprefix-string comment-pos t)) :no-directive)
-       (t (setf directive-pos (point))
-          (nop--make-positions begin-pos comment-pos directive-pos end-pos))))))
+    (with-slots (matches) parser
+      ;; Start from end and possibly prepend comment outside the field as description.
+      (end-of-line)
+      (save-excursion
+        (cond
+         ((not (eq (preceding-char) nop--dsuffix-char)) :no-directive-candidate)
+         ((not (search-backward nop--dprefix-string comment-pos t)) :no-directive)
+         (t (beginning-of-line)
+            (if (not (looking-at (oref parser directive-regexp))) :invalid-directive
+              (match-data nil matches)
+              (nop--positions
+               :begin (marker-position (elt matches 0))
+               :content (marker-position (elt matches 4))
+               :comment (marker-position (elt matches 6))
+               :directive (marker-position (elt matches 7))
+               :spec (marker-position (elt matches 8))
+               :info (marker-position (or (elt matches 10) (elt matches 9)))
+               :suffix (1- (marker-position (elt matches 1)))
+               :end (marker-position (elt matches 1))))))))))
 
 (defconst directive-search-messages
   (list :unsupported-comment-style "Currently, only one-line comment syntax is supported."
         :no-directive-candidate "No directive in comment: No dsuffix delimiter."
-        :no-directive "No directive in comment: No dprefix delimiter."))
+        :no-directive "No directive in comment: No dprefix delimiter."
+        :invalid-directive "No directive in comment: Invalid syntax."))
 
-(defun nop--search-directive-in-comment ()
+(defun nop--search-directive-in-comment (parser)
   "Possibly generates a directive using the comment at current position.
 Leaves cursor at the end of comment. Assumes cursor is looking at comment-position."
-  (pcase (nop--generate-directive-positions)
+  (pcase (nop--generate-directive-positions parser)
     ((and (pred keywordp) kw)
      ;; (lwarn 'nop :debug (plist-get directive-search-messages kw))
      nil)
@@ -768,13 +847,28 @@ If the list has exhausted, continuation is invalid."
   (save-excursion
     (goto-char (point-min))
     (let* ((default (make-instance 'nop--tree-directive))
-           (directives (list default)))
+           (directives (list default))
+           ;; Match data to restore after parse.
+           (existing-match-data (match-data)))
 
-      ;; Buffer analysis pass: Generates directives.
-      (while (re-search-forward "/[/*]" nil t)
-        (when-let ((d (nop--search-directive-in-comment)))
-          ;; Populated list is reverse of buffer order.
-          (push d directives)))
+      (if nop--parser
+
+          (unwind-protect
+              ;; Buffer analysis pass: Generates directives.
+              (while (re-search-forward (oref nop--parser lookup-regexp) nil t)
+                (when-let ((d (nop--search-directive-in-comment nop--parser)))
+                  ;; Populated list is reverse of buffer order.
+                  (push d directives)))
+
+            ;; Restore match-data.
+            (set-match-data existing-match-data)
+
+            ;; Reseat parser markers.
+            (match-data nil (oref nop--parser matches) t))
+
+        (lwarn 'nop :warning
+               "Parse failed: No registered NOP parser for major mode '%s'."
+               major-mode))
 
       (nop--propagate-tree-directive-depths directives)
 

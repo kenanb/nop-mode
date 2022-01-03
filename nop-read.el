@@ -637,7 +637,7 @@ information calculated based on the current DEFAULT face."
       (nop--generate-overlay (nop--info-r positions)
                              `((category nop--overlay-directive)
                                (help-echo "TREE")
-                               (before-string ,(propertize (format "%s%c"
+                               (before-string ,(propertize (format "%s%c "
                                                                    (make-string depth ?\s)
                                                                    sym) 'face h-face))
                                (priority 100)
@@ -690,11 +690,11 @@ information calculated based on the current DEFAULT face."
     (cons '(priority 100)
           (cond ((nop--bookmark-directive-p d)
                  `((help-echo "BOOKMARK")
-                   (before-string ,(propertize (format "%s\N{U+1433}" indent) 'face 'header-line))
+                   (before-string ,(propertize (format "%s\N{U+1433} " indent) 'face 'header-line))
                    (face header-line)))
                 ((nop--anchor-directive-p d)
                  `((help-echo "ANCHOR")
-                   (before-string ,(propertize (format "%s\N{U+140A}" indent) 'face 'highlight))
+                   (before-string ,(propertize (format "%s\N{U+140A} " indent) 'face 'highlight))
                    (face highlight)))
                 (t
                  '((help-echo "OTHER")

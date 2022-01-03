@@ -19,6 +19,7 @@
 ;;
 
 (require 'nop-base)
+(require 'nop-lang)
 
 ;; Modes
 (require 'nop-code)
@@ -53,11 +54,22 @@
             (define-key map (kbd "C-c !") 'nop-cycle-modes)
             map)
   :group 'nop
-  (if nop-mode (nop-cycle-modes)
+  (if nop-mode
+      (progn
+        (let ((most-specific-available-mode
+               (alist-get
+                ;; NOTE : We rely on derived-mode-p to return the most specific
+                ;; matching mode, but the behaviour is not documented.
+                (apply #'derived-mode-p (mapcar #'car nop-major-mode-alist))
+                nop-major-mode-alist)))
+          (when most-specific-available-mode
+            (setf nop--parser (make-instance most-specific-available-mode))))
+        (nop-cycle-modes))
     (cond
      (nop-read-mode (nop-read-mode -1))
      (nop-code-mode (nop-code-mode -1))
-     (nop-mark-mode (nop-mark-mode -1)))))
+     (nop-mark-mode (nop-mark-mode -1)))
+    (setf nop--parser nil)))
 
 ;;;###autoload
 (define-globalized-minor-mode global-nop-mode
