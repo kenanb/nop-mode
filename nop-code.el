@@ -31,7 +31,7 @@
   :version "0.1"
   :group 'nop-overlay)
 
-(setplist 'nop--code-overlay '(face nop-code-base display "[!]"))
+(setplist 'nop--code-overlay '(face nop-code-base display "[#]"))
 (defconst nop--code-overlay '((category nop--code-overlay)))
 
 ;;
@@ -43,7 +43,7 @@
 ;;
 
 (defun nop--code-enable ()
-  "Generates [!] markers replacing the actual nop directives."
+  "Generates [#] markers replacing the actual nop directives."
   (dolist (d (nop--parse-buffer))
     (nop--call-for-each-node
      (lambda (d depth-list)

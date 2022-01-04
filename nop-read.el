@@ -477,6 +477,33 @@ information calculated based on the current DEFAULT face."
 ;;
 ;;
 
+(defconst nop--kind-descriptions
+  (list :none "Uncategorized"
+        :continuation "-"
+        :link "-"
+        :note "Developer Note"
+        :todo "Todo Item"
+        :kludge "Workaround"
+        :unit-test "Unit Test"
+        :header "Source Header"
+        :preprocessor "Preprocessor Directive"
+        :declaration "Variables - Aliases"
+        :function "Function Definition"
+        :macro "Macro Definition"
+        :class "Class Definition"
+        :block "Code Block"
+        :iteration "Iteration"
+        :recursion "Recursion"
+        :selection "Conditional Selection"
+        :condition "Conditional Clause"
+        :scope-init "Block Scope Init"
+        :scope-exit "Block Scope Exit"
+        :assertion "Assertion"
+        :logging "Logging"
+        :exception "Exception - Error Handling"
+        :validation "Validation - Postcondition"
+        :guard-clause "Guard Clause - Precondition"))
+
 (defun nop--recurse-for-subtree (recurse-fn d &rest args)
   (cl-loop for c in-ref (oref d children) do (apply recurse-fn c args))
   (cl-loop for c in-ref (oref d continuations) do (apply recurse-fn c args)))
@@ -543,13 +570,13 @@ information calculated based on the current DEFAULT face."
 
           (overlay-put ellipsis 'after-string
                        (propertize " " 'face face
-                                   'display '(space :align-to (- right-margin 25))))
+                                   'display '(space :align-to (- right-margin 30))))
 
           ;; Hide drawer
           ;; A blank line is required to maintain correct margins on collapse.
           (overlay-put drawer 'display (propertize
                                         (format "[ %s ] (%s) \n"
-                                                (upcase (substring (symbol-name kind))) depth)
+                                                (plist-get nop--kind-descriptions kind) depth)
                                         'face face))
 
           (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6}))

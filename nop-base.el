@@ -176,12 +176,12 @@
 ;;
 ;;                 decor  comment
 ;;       content   /     /     directive
-;;            /   /     /     /     spec             hash     path
+;;            /   /     /     /     spec        delimiter     path
 ;;   begin   /   /     /     /     /                     \     \    suffix   end
 ;;  /       /   /     /     /     /    info               \     \        |  /
 ;; .       .   .     .     .     .     .                   .     .       . .
 ;; |       |   |     |     |     |     |                   |     |       | |
-;; |       |/|/| ... | ... | |[|!|4|F| |I|n|f|o| |s|t|r|.| |#|3| |p|a|t|h|]|EOL
+;; |       |/|/| ... | ... | |[|#|4|F| |I|n|f|o| |s|t|r|.| |#|3| |p|a|t|h|]|EOL
 ;; |       |   |     |     |     |   | |                 |   | | |       | |
 ;; '       '   '     '     '     '   ' '                 '   ' ' '       ' '
 ;;  \_____/ \_/       \___/ \___/ \_/   \_______________/     V   \_____/ V
@@ -200,8 +200,10 @@
 ;;
 ;;  \______________________________________________ line _________________/
 
-(defconst nop--dprefix-string " [!")
+(defconst nop--dprefix-string " [#")
 (defconst nop--dsuffix-char ?\])
+(defconst nop--delimiter-char ?\#)
+(defconst nop--dsuffix-length 1)
 
 (defun nop--regexp-for-lang (cprefix decorations)
   (rx-to-string
@@ -233,7 +235,7 @@
             (? (group-n 5 (* any))
                ?\s))
 
-         (? ?#
+         (? ,nop--delimiter-char
             ;; ispec
             (group-n 6 (* digit))
 
@@ -304,12 +306,6 @@
     (if (zerop (nop--range-length intinfo))
         (nop--extinfo-r positions)
       intinfo)))
-
-(defun nop--type-char (positions)
-  (char-after (oref positions spec)))
-
-(defun nop--kind-char (positions)
-  (char-after (+ (oref positions spec) 1)))
 
 (defun nop--inner-string (positions)
   (nop--apply-range (nop--inner-r positions)
@@ -384,12 +380,13 @@ tree node the bookmark is a child of.")
 
   ((depth
     :initarg :depth
-    :initform 0
-    :type (or fixnum keyword)
+    :initform '(:abs . 0)
+    :type (or fixnum cons)
     :documentation "
 The nesting level of the tree directive.")
 
    (kind
+    :initarg :kind
     :initform :default
     :type keyword
     :documentation "
@@ -516,43 +513,9 @@ Expansion specified in anchor overrides expansion specified in label.")
   (:method ((d nop--directive))
            (with-slots (positions) d
              ;; (lwarn 'nop :debug "Parsed directive: %s" (nop--inner-string positions))
-             ;; TODO : Decide path!
-             ))
-
-  (:method :after
-           ((d nop--tree-directive))
-           (oset d kind
-                 (cl-case (nop--kind-char (oref d positions))
-                   (?. :continuation)
-                   (?> :link)
-
-                   (?N :note)
-                   (?T :todo)
-                   (?K :kludge)
-
-                   (?U :unit-test)
-
-                   (?H :header)
-                   (?P :preprocessor)
-
-                   (?D :declaration)
-                   (?F :function)
-                   (?M :macro)
-                   (?C :class)
-
-                   (?B :block)
-                   (?I :iteration)
-                   (?R :recursion)
-                   (?S :selection)
-                   (?? :condition)
-                   (?{ :scope-init)
-                   (?} :scope-exit)
-
-                   (?A :assertion)
-                   (?L :logging)
-                   (?E :exception)
-                   (?V :validation)
-                   (?G :guard-clause))))
+             ;; TODO : Decide path and expansion!
+             (oset d path "")
+             (oset d expansion 0)))
 
   (:method :after
            ((d nop--bookmark-directive))
@@ -560,32 +523,73 @@ Expansion specified in anchor overrides expansion specified in label.")
              (lwarn 'nop :debug "Bookmark ( at %s ) is unreachable due to missing path."
                     (oref (oref d positions) directive))))
 
-  (:method :after
-           ((d nop--anchor-directive))
-           (oset d expansion
-                 (or (get-char-code-property
-                      (nop--kind-char (oref d positions))
-                      'decimal-digit-value)
-                     nop--expansion-default)))
-
   (error "Called nop--parse-directive with non-directive instance of type %s. Object is: %s"
          (type-of directive)
          directive))
 
+(defun nop--lex-option (option)
+  (cl-case option
+
+    ;; Type specifiers.
+    (?@ '(type . nop--anchor-directive))
+    (?! '(type . nop--bookmark-directive))
+
+    ;; Kind specifiers for tree directives.
+    (?. '(kind . :continuation))
+    (?> '(kind . :link))
+
+    (?N '(kind . :note))
+    (?T '(kind . :todo))
+    (?K '(kind . :kludge))
+
+    (?U '(kind . :unit-test))
+
+    (?H '(kind . :header))
+    (?P '(kind . :preprocessor))
+
+    (?D '(kind . :declaration))
+    (?F '(kind . :function))
+    (?M '(kind . :macro))
+    (?C '(kind . :class))
+
+    (?B '(kind . :block))
+    (?I '(kind . :iteration))
+    (?R '(kind . :recursion))
+    (?S '(kind . :selection))
+    (?? '(kind . :condition))
+    (?{ '(kind . :scope-init))
+    (?} '(kind . :scope-exit))
+
+    (?A '(kind . :assertion))
+    (?L '(kind . :logging))
+    (?E '(kind . :exception))
+    (?V '(kind . :validation))
+    (?G '(kind . :guard-clause))
+
+    ;; Depth modifiers for tree directives.
+    (?+ '(mod . :inc))
+    (?- '(mod . :dec))
+
+    ;; Depth specifiers for tree directives.
+    (t (let ((depth (get-char-code-property option 'decimal-digit-value)))
+         (if (numberp depth) (cons 'depth depth) nil)))))
+
 (defun nop--generate-directive (positions)
-  (let* ((c (nop--type-char positions))
-         (directive (cl-case c
-
-                      (?@ (make-instance 'nop--anchor-directive :positions positions))
-
-                      ;; Label directives
-                      (?. (make-instance 'nop--tree-directive :positions positions :depth :cpy))
-                      (?+ (make-instance 'nop--tree-directive :positions positions :depth :inc))
-                      (?- (make-instance 'nop--tree-directive :positions positions :depth :dec))
-                      (t (let ((depth (get-char-code-property c 'decimal-digit-value)))
-                           (if (numberp depth)
-                               (make-instance 'nop--tree-directive :positions positions :depth depth)
-                             (make-instance 'nop--bookmark-directive :positions positions)))))))
+  (let* ((dspec-r (nop--dspec-r positions))
+         (tokens (cl-loop for i from (oref dspec-r begin) below (oref dspec-r end)
+                          collect (nop--lex-option (char-after i))))
+         (type (alist-get 'type tokens 'nop--tree-directive))
+         (specified-depth (alist-get 'depth tokens))
+         ;; If no depth or mod specified, copy.
+         (mod (alist-get 'mod tokens (if specified-depth :abs :cpy)))
+         (directive
+          (apply #'make-instance type
+                 :positions positions
+                 (cl-case type
+                   (nop--tree-directive (list :kind (alist-get 'kind tokens :none)
+                                              ;; If no depth specified, default to "modify-by-1".
+                                              :depth (cons mod (or specified-depth 1))))
+                   (t nil)))))
     ;; (lwarn 'nop :debug "Positions for generated directive: %s" (nop--debug positions))
     (nop--parse-directive directive)
     directive))
@@ -670,7 +674,7 @@ Assumes cursor is looking at comment-position."
                :directive (marker-position (elt matches 7))
                :spec (marker-position (elt matches 8))
                :info (marker-position (or (elt matches 10) (elt matches 9)))
-               :suffix (1- (marker-position (elt matches 1)))
+               :suffix (- (marker-position (elt matches 1)) nop--dsuffix-length)
                :end (marker-position (elt matches 1))))))))))
 
 (defconst directive-search-messages
@@ -818,11 +822,11 @@ If the list has exhausted, continuation is invalid."
     (dolist (d (reverse directives))
       (when (nop--tree-directive-p d)
         (with-slots (depth) d
-          (setf base (pcase depth
-                       ((pred numberp) depth)
+          (setf base (cl-case (car depth)
+                       (:abs (cdr depth))
                        (:cpy base)
-                       (:inc (1+ base))
-                       (:dec (1- base)))
+                       (:inc (+ base (cdr depth)))
+                       (:dec (- base (cdr depth))))
                 depth base))))))
 
 ;;
