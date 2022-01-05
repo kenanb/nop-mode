@@ -85,7 +85,7 @@ information calculated based on the current DEFAULT face."
 
     (seq-let [bg fg ch] (nop--calculate-color-info)
 
-      ;; NOTE: Base (0-offset) colors must be used for this calculation.
+      ;; NOTE : Base (0-offset) colors must be used for this calculation.
       (setf nop--faces-dirty nil nop--base-colors (list bg fg))
 
       (set-face-attribute 'nop-read-title nil
@@ -135,6 +135,8 @@ information calculated based on the current DEFAULT face."
 ;;;
 ;;
 ;;
+
+;; TODO : If directive line has code, handle should begin after code, and omit indentation.
 
 (setplist 'nop--overlay-invisible '(invisible t priority 100))
 (defconst nop--overlay-invisible '((category nop--overlay-invisible)))
@@ -255,7 +257,7 @@ information calculated based on the current DEFAULT face."
            thereis (when (and candidate
 
                               ;; NOTE : Not skipping hidden candidates will cause the cached
-                              ;; hovered node and calculated hovered node to diverge.
+                              ;;        hovered node and calculated hovered node to diverge.
                               candidate-visible
 
                               ;; If PRIMARYP is requested, skip merged directives.
@@ -312,7 +314,7 @@ information calculated based on the current DEFAULT face."
 (defvar-local nop--active-primary nil)
 (defvar-local nop--active-focused nil)
 
-(define-inline nop-assert-cached-primary ()
+(define-inline nop-assert-cached-primary (fn-name)
   (inline-quote
    (cl-assert (eq (overlay-get (nop--get-nearest-handle) 'directive)
                   nop--active-primary)
@@ -320,11 +322,11 @@ information calculated based on the current DEFAULT face."
               "Cached primary [ %s (%s) ] used in %S is outdated: [ %s (%s) ]"
               nop--last-point
               (nop--get-description nop--active-primary)
-              (cadr (backtrace-frame 7))
+              ,fn-name
               (point)
               (nop--get-description (overlay-get (nop--get-nearest-handle) 'directive)))))
 
-(define-inline nop-assert-cached-focused ()
+(define-inline nop-assert-cached-focused (fn-name)
   (inline-quote
    (cl-assert (eq (nop--locate-focused (overlay-get (nop--get-nearest-handle) 'directive))
                   nop--active-focused)
@@ -332,13 +334,13 @@ information calculated based on the current DEFAULT face."
               "Cached focused [ %s (%s) ] used in %S is outdated: [ %s (%s) ]"
               nop--last-point
               (nop--get-description nop--active-focused)
-              (cadr (backtrace-frame 7))
+              ,fn-name
               (point)
               (nop--get-description (nop--locate-focused
                                      (overlay-get (nop--get-nearest-handle) 'directive))))))
 
-;; (define-inline nop-assert-cached-primary () nil)
-;; (define-inline nop-assert-cached-focused () nil)
+;; (define-inline nop-assert-cached-primary (fn-name) nil)
+;; (define-inline nop-assert-cached-focused (fn-name) nil)
 
 (defun nop--adjust-primary-activation (node active-handle active-title)
   (when node
@@ -413,9 +415,14 @@ information calculated based on the current DEFAULT face."
 ;;
 ;;
 
-(defun nop-nav-jump-forward ()
+(defvar nop-read-recenter-after-jump t)
+
+(defun maybe-recenter ()
+  (when nop-read-recenter-after-jump (recenter)))
+
+(defun nop-nav-step-forward-shallow ()
   (interactive)
-  (nop-assert-cached-primary)
+  (nop-assert-cached-primary "step-forward-shallow")
   ;; No overlay at the end of buffer.
   (let* ((handle (nop--get-nearest-handle))
          (directive (overlay-get handle 'directive))
@@ -425,7 +432,11 @@ information calculated based on the current DEFAULT face."
          (collapsed (overlay-get handle 'collapsed)))
     (when fwd-node
       (nop--nav-jump-to-directive fwd-node)))
-  (recenter))
+  (maybe-recenter))
+
+;; TODO
+(defun nop-nav-step-backward-shallow ()
+  (interactive))
 
 (defun nop--cached-active (primaryp)
   (if primaryp nop--active-primary nop--active-focused))
@@ -435,39 +446,62 @@ information calculated based on the current DEFAULT face."
 
 (defun nop-nav-home-focused ()
   (interactive)
-  (nop-assert-cached-focused)
+  (nop-assert-cached-focused "home-focused")
   (nop--nav-home nil))
 
 (defun nop-nav-home-primary ()
   (interactive)
   (nop--nav-home t))
 
+;; BUG : Step triggers outdated cache assertion if point is at the end of the handle.
 (defun nop--nav-step (backwardp primaryp)
-  (when-let ((found (nop--next-visible-node (nop--cached-active primaryp)
-                                            backwardp
-                                            primaryp)))
-    (nop--nav-jump-to-directive found))
-  (recenter))
+  (let* ((primary (nop--cached-active t))
+         (handle (nop--get-arbitrary primary :handle))
+         (primary-collapsed-p (overlay-get handle 'collapsed))
+         (focused (nop--cached-active primaryp))
+         (past-title-p (> (point) (oref (nop--info-r (oref focused positions)) end))))
+
+    ;; NOTE : Under normal circumstances, point shouldn't be inside the collapsed drawer.
+    ;;        Because post-command-hook attempts to prevent that.
+    ;;        Howver, it is currently not guaranteed.
+
+    (if (and backwardp (not primary-collapsed-p) past-title-p)
+        (progn
+          ;; If point in drawer, backwards step should jump to title.
+          (nop--nav-jump-to-directive focused)
+          (maybe-recenter))
+      (when-let ((found (nop--next-visible-node focused backwardp primaryp)))
+        (nop--nav-jump-to-directive found)
+        (maybe-recenter)))))
 
 (defun nop-nav-step-forward-focused ()
   (interactive)
-  (nop-assert-cached-focused)
+  (nop-assert-cached-focused "step-forward-focused")
   (nop--nav-step nil nil))
 
 (defun nop-nav-step-forward-primary ()
   (interactive)
-  (nop-assert-cached-primary)
+  (nop-assert-cached-primary "step-forward-primary")
   (nop--nav-step nil t))
 
 (defun nop-nav-step-backward-focused ()
   (interactive)
-  (nop-assert-cached-focused)
+  (nop-assert-cached-focused "step-backward-focused")
   (nop--nav-step t nil))
 
 (defun nop-nav-step-backward-primary ()
   (interactive)
-  (nop-assert-cached-primary)
+  (nop-assert-cached-primary "step-backward-primary")
   (nop--nav-step t t))
+
+
+;; TODO
+(defun nop-nav-step-forward-context ()
+  (interactive))
+
+;; TODO
+(defun nop-nav-step-backward-context ()
+  (interactive))
 
 ;;
 ;;
@@ -611,24 +645,24 @@ information calculated based on the current DEFAULT face."
 
 (defun nop-nav-expand-subtree-focused ()
   (interactive)
-  (nop-assert-cached-focused)
+  (nop-assert-cached-focused "expand-subtree-focused")
   (nop--apply-immediate-children #'nop--nav-expand-node nop--active-focused))
 
 (defun nop-nav-expand-subtree-primary ()
   (interactive)
-  (nop-assert-cached-primary)
+  (nop-assert-cached-primary "expand-subtree-primary")
   (nop--apply-all-children #'nop--nav-expand-node nop--active-primary))
 
 (defun nop-nav-collapse-subtree-focused ()
   (interactive)
-  (nop-assert-cached-focused)
+  (nop-assert-cached-focused "collapse-subtree-focused")
   (let ((d nop--active-focused))
     (nop--apply-immediate-children #'nop--nav-collapse-node d)
     (nop--nav-jump-to-directive d)))
 
 (defun nop-nav-collapse-subtree-primary ()
   (interactive)
-  (nop-assert-cached-primary)
+  (nop-assert-cached-primary "collapse-subtree-primary")
   (let ((d nop--active-primary))
     (nop--apply-all-children #'nop--nav-collapse-node d)
     (nop--nav-jump-to-directive d)))
@@ -641,10 +675,21 @@ information calculated based on the current DEFAULT face."
   (interactive)
   (goto-char (buffer-end 1)))
 
-(defun nop-remove-overlays ()
-  (interactive)
-  (read-only-mode -1)
-  (remove-overlays))
+;; TODO
+(defun nop-nav-incremental-expand ()
+  (interactive))
+
+;; TODO
+(defun nop-nav-incremental-collapse ()
+  (interactive))
+
+;; TODO
+(defun nop-nav-global-expand ()
+  (interactive))
+
+;; TODO
+(defun nop-nav-global-collapse ()
+  (interactive))
 
 ;;
 ;;
@@ -853,25 +898,36 @@ information calculated based on the current DEFAULT face."
   ;; The minor mode bindings.
   :keymap (let ((map (make-sparse-keymap)))
 
+            ;; TODO : Tab should cycle between visibility levels.
             ;; Ensure tab toggles visibility regardless of key translation.
             (define-key map (kbd "TAB") #'nop-nav-toggle-node-visibility)
             (define-key map (kbd "<tab>") #'nop-nav-toggle-node-visibility)
 
+            ;; (define-key map (kbd "<up>") #'nop-nav-step-backward-context)
+            ;; (define-key map (kbd "<down>") #'nop-nav-step-forward-context)
+            ;; (define-key map (kbd "<right>") #'nop-nav-incremental-expand)
+            ;; (define-key map (kbd "<left>") #'nop-nav-incremental-collapse)
+
+            (define-key map (kbd "<C-up>") #'nop-nav-step-backward-focused)
+            (define-key map (kbd "<C-down>") #'nop-nav-step-forward-focused)
+            (define-key map (kbd "<C-right>") #'nop-nav-expand-subtree-focused)
+            (define-key map (kbd "<C-left>") #'nop-nav-collapse-subtree-focused)
+
+            (define-key map (kbd "<M-up>") #'nop-nav-step-backward-primary)
+            (define-key map (kbd "<M-down>") #'nop-nav-step-forward-primary)
+            (define-key map (kbd "<M-right>") #'nop-nav-expand-subtree-primary)
+            (define-key map (kbd "<M-left>") #'nop-nav-collapse-subtree-primary)
+
+            (define-key map (kbd "<M-C-up>") #'nop-nav-step-backward-shallow)
+            (define-key map (kbd "<M-C-down>") #'nop-nav-step-forward-shallow)
+            (define-key map (kbd "<M-C-right>") #'nop-nav-global-expand)
+            (define-key map (kbd "<M-C-left>") #'nop-nav-global-collapse)
+
+            (define-key map (kbd "<") #'nop-nav-buffer-begin)
+            (define-key map (kbd ">") #'nop-nav-buffer-end)
+
             (define-key map (kbd "<mouse-1>") #'nop-nav-toggle-node-visibility)
-            (define-key map (kbd "C-+") #'nop-nav-expand-subtree-focused)
-            (define-key map (kbd "+") #'nop-nav-expand-subtree-primary)
-            (define-key map (kbd "C--") #'nop-nav-collapse-subtree-focused)
-            (define-key map (kbd "-") #'nop-nav-collapse-subtree-primary)
-            (define-key map (kbd "q") #'nop-remove-overlays)
-            (define-key map (kbd "b") #'nop-nav-buffer-begin)
-            (define-key map (kbd "e") #'nop-nav-buffer-end)
-            (define-key map (kbd ">") #'nop-nav-step-forward-focused)
-            (define-key map (kbd ".") #'nop-nav-step-forward-primary)
-            (define-key map (kbd "<") #'nop-nav-step-backward-focused)
-            (define-key map (kbd ",") #'nop-nav-step-backward-primary)
-            (define-key map (kbd "H") #'nop-nav-home-focused)
-            (define-key map (kbd "h") #'nop-nav-home-primary)
-            (define-key map (kbd "f") #'nop-nav-jump-forward)
+
 	        map)
   :group 'nop-read
   (if nop-read-mode (nop--read-enable) (nop--read-disable)))

@@ -495,7 +495,7 @@ Expansion specified in anchor overrides expansion specified in label.")
 
   (:method ((d nop--tree-directive))
            (if (eq :default (oref d kind))
-               (format "Default[ %s ]" (buffer-name))
+               (format "%s" (buffer-name))
              (nop--info-string (oref d positions))))
 
   (:method ((d nop--bookmark-directive))
