@@ -72,7 +72,7 @@
                   'nop-read-base
                   "Drawer content box face for depth %s."))
 
-(defvar nop--base-colors)
+(defvar nop--base-colors nil)
 (defvar nop--faces-dirty t)
 
 (defun nop--ensure-face-attributes ()
