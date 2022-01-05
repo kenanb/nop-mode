@@ -619,7 +619,7 @@ Expansion specified in anchor overrides expansion specified in label.")
     :type string
     :documentation
     "Expression used for initial beginning-of-comment lookup.
-This must match both single line and multiline comment types for the language.")
+This must match both single line and block comment types for the language.")
    (comment-prefix
     :allocation :class
     :type string
@@ -645,9 +645,9 @@ The actual NOP directives are only searched in single line comments.")
           (nop--regexp-for-lang (oref this comment-prefix)
                                 (oref this decor-regexp-set)))))
 
-(cl-defgeneric nop--skip-over-multiline (parser)
-  (:documentation "Checks if immediately preceeding comment match indicates a multiline comment.
-In case of multiline, leaves point immediately past the end of multiline comment, and returns T.
+(cl-defgeneric nop--skip-over-block-comment (parser)
+  (:documentation "Checks if immediately preceeding comment match indicates a block comment.
+In case of block comment, leaves point immediately past the end of block comment, and returns T.
 Otherwise, leaves point at the current location, and returns NIL.")
 
   nil)
@@ -655,7 +655,7 @@ Otherwise, leaves point at the current location, and returns NIL.")
 (cl-defun nop--generate-directive-positions (parser &aux (comment-pos (point)))
   "Locates a possible nop directive in comment, leaving cursor at the end of comment.
 Assumes cursor is looking at comment-position."
-  (if (nop--skip-over-multiline parser) :unsupported-comment-style
+  (if (nop--skip-over-block-comment parser) :unsupported-comment-style
 
     (with-slots (matches) parser
       ;; Start from end and possibly prepend comment outside the field as description.

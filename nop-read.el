@@ -494,14 +494,23 @@ information calculated based on the current DEFAULT face."
   (nop-assert-cached-primary "step-backward-primary")
   (nop--nav-step t t))
 
+(defconst nop-smart-step-min-lines 3)
+(defconst nop-smart-step-max-lines 9)
+
+;; TODO
+(defun nop--nav-smart-step (backwardp))
 
 ;; TODO
 (defun nop-nav-step-forward-context ()
-  (interactive))
+  (interactive)
+  (nop-assert-cached-primary "step-forward-context")
+  (nop--nav-smart-step nil))
 
 ;; TODO
 (defun nop-nav-step-backward-context ()
-  (interactive))
+  (interactive)
+  (nop-assert-cached-primary "step-backward-context")
+  (nop--nav-smart-step t))
 
 ;;
 ;;
