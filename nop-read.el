@@ -428,8 +428,7 @@ information calculated based on the current DEFAULT face."
       (nop--nav-jump-to-directive fwd-node)))
   (maybe-recenter))
 
-;; BUG : Step triggers outdated cache assertion if point is at the end of the handle.
-(defun nop--nav-step (backwardp primaryp)
+(defun nop--nav-step-target (backwardp primaryp)
   (let* ((primary (nop--cached-active t))
          (handle (nop--get-arbitrary primary :handle))
          (primary-collapsed-p (overlay-get handle 'collapsed))
@@ -440,43 +439,44 @@ information calculated based on the current DEFAULT face."
     ;;        Because post-command-hook attempts to prevent that.
     ;;        Howver, it is currently not guaranteed.
 
-    (if (and backwardp (not primary-collapsed-p) past-title-p)
-        (progn
-          ;; If point in drawer, backwards step should jump to title.
-          (nop--nav-jump-to-directive focused)
-          (maybe-recenter))
-      (when-let ((found (nop--next-visible-node focused backwardp primaryp)))
-        (nop--nav-jump-to-directive found)
-        (maybe-recenter)))))
+    ;; If point in drawer, backwards step target should be the title.
+    (if (and backwardp (not primary-collapsed-p) past-title-p) focused
+      ;; This can return NIL.
+      (nop--next-visible-node focused backwardp primaryp))))
+
+;; BUG : Step triggers outdated cache assertion if point is at the end of the handle.
+(defun nop--nav-step (backwardp primaryp)
+  (when-let ((target (nop--nav-step-target backwardp primaryp)))
+    (nop--nav-jump-to-directive target)
+    (maybe-recenter)))
 
 (defun nop--nav-smart-step (backwardp)
-  (when-let ((found (nop--next-visible-node (nop--cached-active nil)
-                                            backwardp
-                                            nil)))
+  (when-let ((target (nop--nav-step-target backwardp nil)))
     (let* ((direction (if backwardp -1 +1))
-           (directive-start (oref (oref found positions) begin))
+           (directive-start (oref (oref target positions) begin))
+           (directive-bound (slot-value (oref target positions) (if backwardp 'end 'begin)))
            (effective-start 0)
            (step-in-candidate (cl-loop for i from (+ nop-smart-step-min-lines
                                                      effective-start)
                                        to nop-smart-step-max-lines
-
-                                       ;; The actual iterator.
                                        for j = (* direction i)
-                                       do (message "j: %s" j)
-
                                        for curr = (line-beginning-position j)
-                                       do (message "curr: %s" curr)
-
                                        until (eq curr (line-end-position j))
                                        finally return curr))
-           (char-diff (* direction (- directive-start step-in-candidate)))
+           (char-diff (* direction (- directive-bound step-in-candidate)))
            (jump-to-directive-p (cl-minusp char-diff)))
-      (goto-char (if jump-to-directive-p directive-start
-                   (cl-loop for i to char-diff
-                            for target = (+ step-in-candidate (* direction i))
-                            for curr = (if backwardp (char-before target) (char-after target))
-                            while (member curr '(?\n ?\s ?t))
-                            finally return target))))))
+      (if jump-to-directive-p (goto-char directive-start)
+        (goto-char (cl-loop for i to char-diff
+                            for curr = step-in-candidate then curr
+                            for next = (+ step-in-candidate (* direction i))
+                            for following-char = (if backwardp (char-before next) (char-after next))
+                            while (member following-char '(?\n ?\s ?t))
+                            finally return (if (eq next directive-bound)
+                                               directive-start
+                                             curr)))
+        ;; Go to beginning of line, skipping any field boundaries.
+        (forward-line 0))
+      (maybe-recenter))))
 
 (defun nop--nav-step-forward-shallow ()
   ;; No overlay at the end of buffer.
