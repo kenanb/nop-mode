@@ -401,8 +401,8 @@ information calculated based on the current DEFAULT face."
 ;;
 ;;
 
-(defvar nop-smart-step-min-lines 3)
-(defvar nop-smart-step-max-lines 9)
+(defvar nop-smart-step-min-lines 8)
+(defvar nop-smart-step-max-lines 16)
 (defvar nop-read-recenter-after-jump t)
 
 (defun maybe-recenter ()
@@ -449,8 +449,34 @@ information calculated based on the current DEFAULT face."
         (nop--nav-jump-to-directive found)
         (maybe-recenter)))))
 
-;; TODO
-(defun nop--nav-smart-step (backwardp))
+(defun nop--nav-smart-step (backwardp)
+  (when-let ((found (nop--next-visible-node (nop--cached-active nil)
+                                            backwardp
+                                            nil)))
+    (let* ((direction (if backwardp -1 +1))
+           (directive-start (oref (oref found positions) begin))
+           (effective-start 0)
+           (step-in-candidate (cl-loop for i from (+ nop-smart-step-min-lines
+                                                     effective-start)
+                                       to nop-smart-step-max-lines
+
+                                       ;; The actual iterator.
+                                       for j = (* direction i)
+                                       do (message "j: %s" j)
+
+                                       for curr = (line-beginning-position j)
+                                       do (message "curr: %s" curr)
+
+                                       until (eq curr (line-end-position j))
+                                       finally return curr))
+           (char-diff (* direction (- directive-start step-in-candidate)))
+           (jump-to-directive-p (cl-minusp char-diff)))
+      (goto-char (if jump-to-directive-p directive-start
+                   (cl-loop for i to char-diff
+                            for target = (+ step-in-candidate (* direction i))
+                            for curr = (if backwardp (char-before target) (char-after target))
+                            while (member curr '(?\n ?\s ?t))
+                            finally return target))))))
 
 (defun nop--nav-step-forward-shallow ()
   ;; No overlay at the end of buffer.
@@ -947,10 +973,10 @@ information calculated based on the current DEFAULT face."
             (define-key map (kbd "TAB") #'nop-nav-toggle-node-visibility)
             (define-key map (kbd "<tab>") #'nop-nav-toggle-node-visibility)
 
-            ;; (define-key map (kbd "<up>") #'nop-nav-step-backward-context)
-            ;; (define-key map (kbd "<down>") #'nop-nav-step-forward-context)
-            ;; (define-key map (kbd "<right>") #'nop-nav-incremental-expand)
-            ;; (define-key map (kbd "<left>") #'nop-nav-incremental-collapse)
+            (define-key map (kbd "<up>") #'nop-nav-step-backward-context)
+            (define-key map (kbd "<down>") #'nop-nav-step-forward-context)
+            (define-key map (kbd "<right>") #'nop-nav-incremental-expand)
+            (define-key map (kbd "<left>") #'nop-nav-incremental-collapse)
 
             (define-key map (kbd "<C-up>") #'nop-nav-step-backward-focused)
             (define-key map (kbd "<C-down>") #'nop-nav-step-forward-focused)
