@@ -8,21 +8,11 @@
 
 ;;; Code:
 
-;;
-;;
-;;;
-;;; Dependencies
-;;;
-;;
-;;
+;;; Dependencies [#.]
 
 (require 'nop-base)
 
-;;
-;;
-;;;
-;;; Face Definitions
-;;;
+;;; Face Definitions [#.]
 ;;
 ;;
 
@@ -70,11 +60,7 @@
                  (after-string ,(propertize " < OTHER "
                                             'face 'nop-mark-annotations)))))))
 
-;;
-;;
-;;;
-;;; Nop Mark Enable / Disable
-;;;
+;;; Nop Mark Enable / Disable [#.]
 ;;
 ;;
 
@@ -96,11 +82,7 @@
 (defun nop--mark-disable ()
   (remove-overlays))
 
-;;
-;;
-;;;
-;;; Nop Mark Minor Mode
-;;;
+;;; Nop Mark Minor Mode [#.]
 ;;
 ;;
 
@@ -117,11 +99,7 @@
   :group 'nop
   (if nop-mark-mode (nop--mark-enable) (nop--mark-disable)))
 
-;;
-;;
-;;;
-;;; Nop Mark Provide
-;;;
+;;; Nop Mark Provide [#.]
 ;;
 ;;
 

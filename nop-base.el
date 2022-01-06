@@ -8,13 +8,7 @@
 
 ;;; Code:
 
-;;
-;;
-;;;
-;;; Dependencies
-;;;
-;;
-;;
+;;; Dependencies [#.]
 
 (require 'cl-lib)
 (require 'cl-extra)
@@ -29,11 +23,7 @@
 
 (eval-when-compile (require 'subr-x))
 
-;;
-;;
-;;;
-;;; Group
-;;;
+;;; Group [#3H]
 ;;
 ;;
 
@@ -56,11 +46,15 @@
   (interactive)
   (customize-group 'nop))
 
+;;; Utilities [#0.]
 ;;
 ;;
-;;;
-;;; Face Utilities
-;;;
+
+
+(cl-defgeneric nop--debug (instance)
+  (:documentation "Format a readable representation of object in message area."))
+
+;;; Face Utilities [#1F]
 ;;
 ;;
 
@@ -112,67 +106,9 @@
                   (intern (concat name-prefix (number-to-string depth))) nil
                   (funcall fn depth))))
 
+
+;;; Positions and Ranges [#1]
 ;;
-;;
-;;;
-;;; Utilities
-;;;
-;;
-;;
-
-
-(cl-defgeneric nop--debug (instance)
-  (:documentation "Format a readable representation of object in message area."))
-
-;;
-;;
-;;;
-;;; Range
-;;;
-;;
-;;
-;; Position (between two characters) range.
-;; Represents text range: [x,y)
-
-(defclass nop--range ()
-  ((begin :initarg :begin :initform 0 :type fixnum)
-   (end :initarg :end :initform 0 :type fixnum)))
-
-(defun nop--range-length (range)
-  (with-slots (begin end) range
-    (- end begin)))
-
-(defun nop--apply-range (range fn)
-  (with-slots (begin end) range
-    (funcall fn begin end)))
-
-(defun nop--debug-range (range)
-  (with-slots (begin end) range
-    (if (or (zerop begin) (zerop end))
-        (format "[ %d, %d )" begin end)
-      (format "[ %d(%c), %d(%c) )"
-              begin (char-after begin)
-              end (char-after end)))))
-
-(defun nop--generate-overlay (r p)
-  (let ((ov (nop--apply-range r #'make-overlay)))
-
-    ;; We cache  the end  of overlays, so  we can temporarily  reduce them  to 0
-    ;; size, when needed.   Alternatively, we can try priority of  0 with cached
-    ;; priority.  The difference is, if there are any properties not provided by
-    ;; parent overlay, this will still leak into view.
-    (overlay-put ov 'cached-start (oref r begin))
-    (overlay-put ov 'cached-end (oref r end))
-
-    (dolist (kv p)
-      (apply #'overlay-put ov kv))
-    ov))
-
-;;
-;;
-;;;
-;;; Positions and Ranges
-;;;
 ;;
 ;;                 decor  comment
 ;;       content   /     /     directive
@@ -248,6 +184,8 @@
 
 (defconst nop--expansion-default 1)
 
+;; Position [#+C]
+
 (defclass nop--positions ()
   ((begin     :initarg :begin
               :initform 0
@@ -274,6 +212,47 @@
               :initform 0
               :type fixnum))
   "Represents the change positions.")
+
+;; Range [#C]
+
+;; Position (between two characters) range.
+;; Represents text range: [x,y)
+
+(defclass nop--range ()
+  ((begin :initarg :begin :initform 0 :type fixnum)
+   (end :initarg :end :initform 0 :type fixnum)))
+
+(defun nop--range-length (range)
+  (with-slots (begin end) range
+    (- end begin)))
+
+(defun nop--apply-range (range fn)
+  (with-slots (begin end) range
+    (funcall fn begin end)))
+
+(defun nop--debug-range (range)
+  (with-slots (begin end) range
+    (if (or (zerop begin) (zerop end))
+        (format "[ %d, %d )" begin end)
+      (format "[ %d(%c), %d(%c) )"
+              begin (char-after begin)
+              end (char-after end)))))
+
+(defun nop--generate-overlay (r p)
+  (let ((ov (nop--apply-range r #'make-overlay)))
+
+    ;; We cache  the end  of overlays, so  we can temporarily  reduce them  to 0
+    ;; size, when needed.   Alternatively, we can try priority of  0 with cached
+    ;; priority.  The difference is, if there are any properties not provided by
+    ;; parent overlay, this will still leak into view.
+    (overlay-put ov 'cached-start (oref r begin))
+    (overlay-put ov 'cached-end (oref r end))
+
+    (dolist (kv p)
+      (apply #'overlay-put ov kv))
+    ov))
+
+;; Range Generators [#M]
 
 (cl-defmacro define-nop--range-generator (fn-sym
                                           bgn-key
@@ -326,11 +305,7 @@
           (nop--debug-range (nop--dspec-r positions))
           (nop--debug-range (nop--info-r positions))))
 
-;;
-;;
-;;;
-;;; Directive
-;;;
+;;; Directive [#1C]
 ;;
 ;;
 
@@ -434,11 +409,7 @@ Arbitrary attributes associated with the directive."))
   "Represents a widget that allows jumping to a label widget with the specified path.
 Expansion specified in anchor overrides expansion specified in label.")
 
-;;
-;;
-;;;
-;;; Debug Printing
-;;;
+;;; Debug Printing [#+5F]
 ;;
 ;;
 
@@ -481,11 +452,7 @@ Expansion specified in anchor overrides expansion specified in label.")
                                  (oref d kind))
                   (cl-call-next-method))))
 
-;;
-;;
-;;;
-;;; Directive Parsing
-;;;
+;;; Directive Parsing [#1F]
 ;;
 ;;
 
@@ -594,11 +561,7 @@ Expansion specified in anchor overrides expansion specified in label.")
     (nop--parse-directive directive)
     directive))
 
-;;
-;;
-;;;
-;;; Language Specific Parser
-;;;
+;;; Language Specific Parser [#1C]
 ;;
 ;;
 
@@ -692,11 +655,7 @@ Leaves cursor at the end of comment. Assumes cursor is looking at comment-positi
      nil)
     (positions (nop--generate-directive positions))))
 
-;;
-;;
-;;;
-;;; Directive Merge
-;;;
+;;; Directive Merge [#1F]
 ;;
 ;;
 
@@ -808,11 +767,7 @@ If the list has exhausted, continuation is invalid."
            ;; Assumes at this point we have a single depth left, that collected everything: DEFAULT
            finally return (car queue)))
 
-;;
-;;
-;;;
-;;; Depth Propagation
-;;;
+;;; Depth Propagation [#1F]
 ;;
 ;;
 
@@ -829,11 +784,7 @@ If the list has exhausted, continuation is invalid."
                        (:dec (- base (cdr depth))))
                 depth base))))))
 
-;;
-;;
-;;;
-;;; Buffer Processing
-;;;
+;;; Buffer Processing [#1F]
 ;;
 ;;
 
@@ -878,11 +829,7 @@ If the list has exhausted, continuation is invalid."
 
       (nop--merge directives))))
 
-;;
-;;
-;;;
-;;; Nop Provide
-;;;
+;;; Nop Provide [#0.]
 ;;
 ;;
 

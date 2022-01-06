@@ -12,21 +12,11 @@
 
 ;;; Code:
 
-;;
-;;
-;;;
-;;; Dependencies
-;;;
-;;
-;;
+;;; Dependencies [#.]
 
 (require 'nop-base)
 
-;;
-;;
-;;;
-;;; Language Definitions
-;;;
+;;; Language Definitions [#.]
 ;;
 ;;
 
@@ -101,11 +91,7 @@
         (asm-mode . nop--gas-parser)
         (nasm-mode . nop--nasm-parser)))
 
-;;
-;;
-;;;
-;;; Nop Provide
-;;;
+;;; Nop Provide [#.]
 ;;
 ;;
 

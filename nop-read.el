@@ -17,21 +17,13 @@
 
 ;;; Code:
 
-;;
-;;
-;;;
-;;; Dependencies
-;;;
+;;; Dependencies [#.]
 ;;
 ;;
 
 (require 'nop-base)
 
-;;
-;;
-;;;
-;;; Face Definitions
-;;;
+;;; Face Definitions [#1]
 ;;
 ;;
 
@@ -128,11 +120,7 @@ information calculated based on the current DEFAULT face."
 (advice-add #'enable-theme :after #'nop--check-faces-dirty)
 (advice-add #'disable-theme :after #'nop--check-faces-dirty)
 
-;;
-;;
-;;;
-;;; Overlay Generation
-;;;
+;;; Overlay Generation [#1]
 ;;
 ;;
 
@@ -190,11 +178,7 @@ information calculated based on the current DEFAULT face."
   (eq 'nop--overlay-tree
       (overlay-get ov 'category)))
 
-;;
-;;
-;;;
-;;; Navigation Routines
-;;;
+;;; Navigation Routines [#1]
 ;;
 ;;
 
@@ -300,11 +284,7 @@ information calculated based on the current DEFAULT face."
           (cons (overlay-get (nop--get-nearest-handle) 'directive) focused))
       (cons primary focused))))
 
-;;
-;;
-;;;
-;;; Active Node Tracking
-;;;
+;;; Active Node Tracking [#1]
 ;;
 ;;
 
@@ -407,11 +387,7 @@ information calculated based on the current DEFAULT face."
 
     (setf nop--last-point (point))))
 
-;;
-;;
-;;;
-;;; Navigation Commands
-;;;
+;;; Navigation Commands [#1]
 ;;
 ;;
 
@@ -512,11 +488,7 @@ information calculated based on the current DEFAULT face."
   (nop-assert-cached-primary "step-backward-context")
   (nop--nav-smart-step t))
 
-;;
-;;
-;;;
-;;; Visibility Adjustment
-;;;
+;;; Visibility Adjustment [#1]
 ;;
 ;;
 
@@ -637,11 +609,7 @@ information calculated based on the current DEFAULT face."
         (nop--nav-expand-node directive)
       (nop--nav-collapse-node directive))))
 
-;;
-;;
-;;;
-;;; Visibility Commands
-;;;
+;;; Visibility Commands [#1]
 ;;
 ;;
 
@@ -700,11 +668,7 @@ information calculated based on the current DEFAULT face."
 (defun nop-nav-global-collapse ()
   (interactive))
 
-;;
-;;
-;;;
-;;; Overlay Generation
-;;;
+;;; Overlay Generation [#1]
 ;;
 ;;
 
@@ -781,11 +745,7 @@ information calculated based on the current DEFAULT face."
                  '((help-echo "OTHER")
                    (face mode-line-highlight)))))))
 
-;;
-;;
-;;;
-;;; Nop Read Enable / Disable
-;;;
+;;; Nop Read Enable / Disable [#1]
 ;;
 ;;
 
@@ -889,11 +849,7 @@ information calculated based on the current DEFAULT face."
 
   (nop--after-read-mode))
 
-;;
-;;
-;;;
-;;; Nop Read Minor Mode
-;;;
+;;; Nop Read Minor Mode [#1]
 ;;
 ;;
 
@@ -941,11 +897,7 @@ information calculated based on the current DEFAULT face."
   :group 'nop-read
   (if nop-read-mode (nop--read-enable) (nop--read-disable)))
 
-;;
-;;
-;;;
-;;; Nop Read Provide
-;;;
+;;; Nop Read Provide [#0.]
 ;;
 ;;
 

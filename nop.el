@@ -10,13 +10,7 @@
 
 ;;; Code:
 
-;;
-;;
-;;;
-;;; Dependencies
-;;;
-;;
-;;
+;;; Dependencies [#.]
 
 (require 'nop-base)
 (require 'nop-lang)
@@ -26,11 +20,7 @@
 (require 'nop-read)
 (require 'nop-mark)
 
-;;
-;;
-;;;
-;;; Nop Minor Mode
-;;;
+;;; Nop Minor Mode [#.]
 ;;
 ;;
 
@@ -77,11 +67,7 @@
   (lambda () (nop-mode t))
   :group 'nop)
 
-;;
-;;
-;;;
-;;; Nop Provide
-;;;
+;;; Nop Provide [#.]
 ;;
 ;;
 

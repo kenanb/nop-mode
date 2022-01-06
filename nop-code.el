@@ -8,21 +8,11 @@
 
 ;;; Code:
 
-;;
-;;
-;;;
-;;; Dependencies
-;;;
-;;
-;;
+;;; Dependencies [#.]
 
 (require 'nop-base)
 
-;;
-;;
-;;;
-;;; Face Definitions
-;;;
+;;; Face Definitions [#.]
 ;;
 ;;
 
@@ -34,11 +24,7 @@
 (setplist 'nop--code-overlay '(face nop-code-base display "[#]"))
 (defconst nop--code-overlay '((category nop--code-overlay)))
 
-;;
-;;
-;;;
-;;; Nop Code Enable / Disable
-;;;
+;;; Nop Code Enable / Disable [#.]
 ;;
 ;;
 
@@ -59,11 +45,7 @@
 (defun nop--code-disable ()
   (remove-overlays))
 
-;;
-;;
-;;;
-;;; Nop Code Minor Mode
-;;;
+;;; Nop Code Minor Mode [#.]
 ;;
 ;;
 
@@ -80,11 +62,7 @@
   :group 'nop
   (if nop-code-mode (nop--code-enable) (nop--code-disable)))
 
-;;
-;;
-;;;
-;;; Nop Code Provide
-;;;
+;;; Nop Code Provide [#.]
 ;;
 ;;
 
