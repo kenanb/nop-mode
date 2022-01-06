@@ -46,7 +46,7 @@
                `((face header-line)
                  (after-string ,(propertize " < LABEL "
                                             'face 'nop-mark-annotations))))
-              ((nop--jump-directive-p d)
+              ((nop--anchor-directive-p d)
                `((face highlight)
                  (after-string ,(propertize " < JUMP "
                                             'face 'nop-mark-annotations))))
