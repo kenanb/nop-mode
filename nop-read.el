@@ -129,11 +129,12 @@ information calculated based on the current DEFAULT face."
 (setplist 'nop--overlay-invisible '(invisible t priority 100))
 (defconst nop--overlay-invisible '((category nop--overlay-invisible)))
 
-(defconst nop--ov-margin-block-width 4)
+(defconst nop--ov-left-margin-block-width 2)
+(defconst nop--ov-right-margin-block-width 4)
 
 (defun nop--add-margin-indent-for-depth (margin depth size-m faces &optional reverse limit-m)
   (let* ((face (elt faces depth))
-         (curr-m (* depth nop--ov-margin-block-width))
+         (curr-m (* depth nop--ov-right-margin-block-width))
          (last-m (or limit-m size-m))
          (b (if reverse curr-m (- size-m last-m)))
          (e (if reverse last-m (- size-m curr-m))))
@@ -148,31 +149,39 @@ information calculated based on the current DEFAULT face."
                          margin curr size-m faces reverse last-m)
            finally return margin))
 
-(defun nop--generate-prefixes (; l
-                               r)
+(defun nop--generate-prefixes (l r)
   (concat
-   ;; (propertize " " 'display `((margin left-margin) ,l))
+   (propertize " " 'display `((margin left-margin) ,l))
    (propertize " " 'display `((margin right-margin) ,r))))
 
 (defun nop--generate-margin-strings (max-depth depths)
-  (let* ((size-m (* (1+ max-depth) nop--ov-margin-block-width))
+  (let* ((margin-l (concat (make-string nop--ov-left-margin-block-width ?\s) (propertize " " 'face 'default)))
+         (margin-lh (copy-sequence margin-l))
+         (margin-lha (copy-sequence margin-l))
+
+         (size-m (* (1+ max-depth) nop--ov-right-margin-block-width))
          (template (concat (make-string size-m ?\s) (propertize " " 'face 'default)))
-         ;; (margin-l (nop--generate-indentation max-depth (cdr depths) template nop--drawer-faces t))
-         ;; (margin-lh (copy-sequence margin-l))
-         ;; (margin-lha (copy-sequence margin-l))
          (margin-r (nop--generate-indentation max-depth size-m (cdr depths) template nop--drawer-faces))
          (margin-rh (copy-sequence margin-r))
          (margin-rha (copy-sequence margin-r)))
-    ;; (nop--add-margin-indent-for-depth margin-l   (car depths) size-m nop--drawer-faces)
-    ;; (nop--add-margin-indent-for-depth margin-lh  (car depths) size-m nop--handle-faces)
-    ;; (nop--add-margin-indent-for-depth margin-lh  (car depths) size-m nop--handle-active-faces)
+
+    (put-text-property 0 nop--ov-left-margin-block-width
+                       'face (elt nop--drawer-faces (car depths))
+                       margin-l)
+    (put-text-property 0 nop--ov-left-margin-block-width
+                       'face (elt nop--handle-faces (car depths))
+                       margin-lh)
+    (put-text-property 0 nop--ov-left-margin-block-width
+                       'face (elt nop--handle-active-faces (car depths))
+                       margin-lha)
+
     (nop--add-margin-indent-for-depth margin-r   (car depths) size-m nop--drawer-faces)
     (nop--add-margin-indent-for-depth margin-rh  (car depths) size-m nop--handle-faces)
     (nop--add-margin-indent-for-depth margin-rha (car depths) size-m nop--handle-active-faces)
 
-    (vector (nop--generate-prefixes margin-r)
-            (nop--generate-prefixes margin-rh)
-            (nop--generate-prefixes margin-rha))))
+    (vector (nop--generate-prefixes margin-l margin-r)
+            (nop--generate-prefixes margin-lh margin-rh)
+            (nop--generate-prefixes margin-lha margin-rha))))
 
 (defun nop--tree-overlay-p (ov)
   (eq 'nop--overlay-tree
@@ -385,7 +394,8 @@ information calculated based on the current DEFAULT face."
         (setf nop--active-primary new-primary
               nop--active-focused new-focused)))
 
-    (setf nop--last-point (point))))
+    (setf nop--last-point (point))
+    (setf overlay-arrow-position (copy-marker (line-beginning-position)))))
 
 ;;; Navigation Commands [#1F]
 ;;
@@ -775,39 +785,77 @@ information calculated based on the current DEFAULT face."
 ;;
 ;;
 
-;; (defvar-local nop--left-margin-width-copy nil)
+(defvar-local nop--cursor-type-copy nil)
+(defvar-local nop--fringes-outside-margins-copy nil)
+(defvar-local nop--left-margin-width-copy nil)
 (defvar-local nop--right-margin-width-copy nil)
 (defvar-local nop--fringe-mode-copy nil)
 (defvar-local nop--truncate-lines-copy nil)
 (defvar-local nop--buffer-read-only-copy nil)
 (defvar-local nop--header-line-format-copy nil)
 
+(defun nop--setup-cursor-margins-fringes (max-depth)
+
+  (cl-shiftf nop--fringes-outside-margins-copy fringes-outside-margins t)
+
+  (cl-shiftf nop--left-margin-width-copy
+             left-margin-width
+             nop--ov-left-margin-block-width)
+
+  (cl-shiftf nop--right-margin-width-copy
+             right-margin-width
+             (* (1+ max-depth) nop--ov-right-margin-block-width))
+
+  ;; Necessary to activate above changes.
+  (set-window-buffer (selected-window) (current-buffer))
+
+  (cl-shiftf nop--truncate-lines-copy truncate-lines t)
+
+  (cl-shiftf nop--cursor-type-copy cursor-type nil)
+
+  (setf nop--fringe-mode-copy fringe-mode)
+  (fringe-mode '(16 . 16)))
+
+(defun nop--revert-cursor-margins-fringes ()
+
+  (cl-shiftf fringes-outside-margins nop--fringes-outside-margins-copy nil)
+
+  (cl-shiftf left-margin-width nop--left-margin-width-copy nil)
+
+  (cl-shiftf right-margin-width nop--right-margin-width-copy nil)
+
+  ;; Necessary to activate above changes.
+  (set-window-buffer (selected-window) (current-buffer))
+
+  (cl-shiftf truncate-lines nop--truncate-lines-copy nil)
+
+  (cl-shiftf cursor-type nop--cursor-type-copy nil)
+
+  (fringe-mode nop--fringe-mode-copy)
+  (setf nop--fringe-mode-copy nil))
+
 (defun nop--before-read-mode (max-depth)
+  (nop--setup-cursor-margins-fringes max-depth)
 
   (nop--ensure-face-attributes)
 
-  (let ((margin-width (* (1+ max-depth) nop--ov-margin-block-width)))
-    ;; (cl-shiftf nop--left-margin-width-copy left-margin-width margin-width)
-    (cl-shiftf nop--right-margin-width-copy right-margin-width margin-width))
-  ;; Necessary to activate margin width change.
-  (set-window-buffer (selected-window) (current-buffer))
   (remove-overlays)
+
   (setf nop--buffer-read-only-copy buffer-read-only)
   (read-only-mode 1)
-  (setf nop--fringe-mode-copy fringe-mode)
-  (fringe-mode 0)
-  (cl-shiftf nop--truncate-lines-copy truncate-lines t))
+
+  (setf overlay-arrow-position (copy-marker (line-beginning-position))))
 
 (defun nop--after-read-mode ()
+  (nop--revert-cursor-margins-fringes)
+
   (setf nop--last-point nil)
-  ;; (setf left-margin-width nop--left-margin-width-copy)
-  (setf right-margin-width nop--right-margin-width-copy)
-  ;; Necessary to activate margin width change.
-  (set-window-buffer (selected-window) (current-buffer))
+
   (remove-overlays)
+
   (unless nop--buffer-read-only-copy (read-only-mode -1))
-  (fringe-mode nop--fringe-mode-copy)
-  (setf truncate-lines nop--truncate-lines-copy))
+
+  (setf overlay-arrow-position nil))
 
 (defun nop--read-enable (&optional collapsed)
   "Generates nested drawer overlays for nop directives. Buffer is read-only."
@@ -857,6 +905,7 @@ information calculated based on the current DEFAULT face."
   (let ((new-nodes (nop--get-nearest-visible-node-pair nop--last-point)))
     (setf nop--active-primary (car new-nodes))
     (setf nop--active-focused (cdr new-nodes)))
+
   (add-hook 'post-command-hook #'nop--read-post-command 0 t)
 
   (when collapsed (recenter))
@@ -868,10 +917,14 @@ information calculated based on the current DEFAULT face."
 
 
 (defun nop--read-disable ()
+
   (setf header-line-format nop--header-line-format-copy)
+
   (remove-hook 'post-command-hook #'nop--read-post-command t)
+
   (setf nop--active-primary nil)
   (setf nop--active-focused nil)
+  (setf nop--last-point nil)
 
   (nop--after-read-mode))
 
