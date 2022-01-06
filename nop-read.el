@@ -120,7 +120,7 @@ information calculated based on the current DEFAULT face."
 (advice-add #'enable-theme :after #'nop--check-faces-dirty)
 (advice-add #'disable-theme :after #'nop--check-faces-dirty)
 
-;;; Overlay Generation [#1]
+;;; Overlay Generation [#1F]
 ;;
 ;;
 
@@ -178,7 +178,7 @@ information calculated based on the current DEFAULT face."
   (eq 'nop--overlay-tree
       (overlay-get ov 'category)))
 
-;;; Navigation Routines [#1]
+;;; Navigation and Visibility Utilities [#1F]
 ;;
 ;;
 
@@ -284,7 +284,7 @@ information calculated based on the current DEFAULT face."
           (cons (overlay-get (nop--get-nearest-handle) 'directive) focused))
       (cons primary focused))))
 
-;;; Active Node Tracking [#1]
+;;; Active Node Tracking [#1F]
 ;;
 ;;
 
@@ -387,14 +387,22 @@ information calculated based on the current DEFAULT face."
 
     (setf nop--last-point (point))))
 
-;;; Navigation Commands [#1]
+;;; Navigation Commands [#1F]
 ;;
 ;;
 
+(defvar nop-smart-step-min-lines 3)
+(defvar nop-smart-step-max-lines 9)
 (defvar nop-read-recenter-after-jump t)
 
 (defun maybe-recenter ()
   (when nop-read-recenter-after-jump (recenter)))
+
+(defun nop--cached-active (primaryp)
+  (if primaryp nop--active-primary nop--active-focused))
+
+(defun nop--nav-home (primaryp)
+  (nop--nav-jump-to-directive (nop--cached-active primaryp)))
 
 (defun nop-nav-step-forward-shallow ()
   (interactive)
@@ -409,25 +417,6 @@ information calculated based on the current DEFAULT face."
     (when fwd-node
       (nop--nav-jump-to-directive fwd-node)))
   (maybe-recenter))
-
-;; TODO
-(defun nop-nav-step-backward-shallow ()
-  (interactive))
-
-(defun nop--cached-active (primaryp)
-  (if primaryp nop--active-primary nop--active-focused))
-
-(defun nop--nav-home (primaryp)
-  (nop--nav-jump-to-directive (nop--cached-active primaryp)))
-
-(defun nop-nav-home-focused ()
-  (interactive)
-  (nop-assert-cached-focused "home-focused")
-  (nop--nav-home nil))
-
-(defun nop-nav-home-primary ()
-  (interactive)
-  (nop--nav-home t))
 
 ;; BUG : Step triggers outdated cache assertion if point is at the end of the handle.
 (defun nop--nav-step (backwardp primaryp)
@@ -450,6 +439,41 @@ information calculated based on the current DEFAULT face."
         (nop--nav-jump-to-directive found)
         (maybe-recenter)))))
 
+;; TODO
+(defun nop--nav-smart-step (backwardp))
+
+(defun nop--nav-step-forward-shallow ()
+  ;; No overlay at the end of buffer.
+  (let* ((handle (nop--get-nearest-handle))
+         (directive (overlay-get handle 'directive))
+         (fwd-node (oref (nop--get-last-node-of-subtree directive) next-node))
+
+         (drawer (overlay-get handle 'drawer))
+         (collapsed (overlay-get handle 'collapsed)))
+    (when fwd-node
+      (nop--nav-jump-to-directive fwd-node)))
+  (maybe-recenter))
+
+;; Home Commands [#+5F]
+
+(defun nop-nav-home-focused ()
+  (interactive)
+  (nop-assert-cached-focused "home-focused")
+  (nop--nav-home nil))
+
+(defun nop-nav-home-primary ()
+  (interactive)
+  (nop-assert-cached-focused "home-primary")
+  (nop--nav-home t))
+
+
+;; Forward Commands [#F]
+
+(defun nop-nav-step-forward-context ()
+  (interactive)
+  (nop-assert-cached-primary "step-forward-context")
+  (nop--nav-smart-step nil))
+
 (defun nop-nav-step-forward-focused ()
   (interactive)
   (nop-assert-cached-focused "step-forward-focused")
@@ -459,6 +483,19 @@ information calculated based on the current DEFAULT face."
   (interactive)
   (nop-assert-cached-primary "step-forward-primary")
   (nop--nav-step nil t))
+
+(defun nop-nav-step-forward-shallow ()
+  (interactive)
+  (nop-assert-cached-primary "step-forward-shallow")
+  (nop--nav-step-forward-shallow))
+
+
+;; Backward Commands [#F]
+
+(defun nop-nav-step-backward-context ()
+  (interactive)
+  (nop-assert-cached-primary "step-backward-context")
+  (nop--nav-smart-step t))
 
 (defun nop-nav-step-backward-focused ()
   (interactive)
@@ -470,23 +507,11 @@ information calculated based on the current DEFAULT face."
   (nop-assert-cached-primary "step-backward-primary")
   (nop--nav-step t t))
 
-(defconst nop-smart-step-min-lines 3)
-(defconst nop-smart-step-max-lines 9)
-
 ;; TODO
-(defun nop--nav-smart-step (backwardp))
-
-;; TODO
-(defun nop-nav-step-forward-context ()
+(defun nop-nav-step-backward-shallow ()
   (interactive)
-  (nop-assert-cached-primary "step-forward-context")
-  (nop--nav-smart-step nil))
+  (nop-assert-cached-primary "step-backward-shallow"))
 
-;; TODO
-(defun nop-nav-step-backward-context ()
-  (interactive)
-  (nop-assert-cached-primary "step-backward-context")
-  (nop--nav-smart-step t))
 
 ;;; Visibility Adjustment [#1]
 ;;
@@ -494,18 +519,19 @@ information calculated based on the current DEFAULT face."
 
 (defconst nop--kind-descriptions
   (list :none "Uncategorized"
-        :continuation "-"
-        :link "-"
+        :continuation "-" ; Not represented as a primary directive.
+        :link "-" ; Receives kind information from linked node.
         :note "Developer Note"
         :todo "Todo Item"
-        :kludge "Workaround"
+        :kludge "Kludge"
+        :warning "Warning"
         :unit-test "Unit Test"
-        :header "Source Header"
-        :preprocessor "Preprocessor Directive"
-        :declaration "Variables - Aliases"
-        :function "Function Definition"
-        :macro "Macro Definition"
-        :class "Class Definition"
+        :header "Header / Footer / Boilerplate"
+        :preprocessor "Preprocessor Directives"
+        :declaration "Declarations / Variables / Aliases"
+        :function "Function Definitions"
+        :macro "Macro Definitions"
+        :class "Class Definitions"
         :block "Code Block"
         :iteration "Iteration"
         :recursion "Recursion"
@@ -513,11 +539,11 @@ information calculated based on the current DEFAULT face."
         :condition "Conditional Clause"
         :scope-init "Block Scope Init"
         :scope-exit "Block Scope Exit"
-        :assertion "Assertion"
+        :assertion "Assertions"
         :logging "Logging"
-        :exception "Exception - Error Handling"
-        :validation "Validation - Postcondition"
-        :guard-clause "Guard Clause - Precondition"))
+        :exception "Exception / Error Handling"
+        :validation "Validation / Postconditions"
+        :guard-clause "Guard Clauses / Preconditions"))
 
 (defun nop--recurse-for-subtree (recurse-fn d &rest args)
   (cl-loop for c in-ref (oref d children) do (apply recurse-fn c args))
@@ -609,7 +635,7 @@ information calculated based on the current DEFAULT face."
         (nop--nav-expand-node directive)
       (nop--nav-collapse-node directive))))
 
-;;; Visibility Commands [#1]
+;;; Visibility Commands [#1F]
 ;;
 ;;
 
@@ -668,7 +694,7 @@ information calculated based on the current DEFAULT face."
 (defun nop-nav-global-collapse ()
   (interactive))
 
-;;; Overlay Generation [#1]
+;;; Overlay Generation [#1F]
 ;;
 ;;
 
@@ -745,7 +771,7 @@ information calculated based on the current DEFAULT face."
                  '((help-echo "OTHER")
                    (face mode-line-highlight)))))))
 
-;;; Nop Read Enable / Disable [#1]
+;;; Nop Read Enable / Disable [#1F]
 ;;
 ;;
 
@@ -890,6 +916,8 @@ information calculated based on the current DEFAULT face."
 
             (define-key map (kbd "<") #'nop-nav-buffer-begin)
             (define-key map (kbd ">") #'nop-nav-buffer-end)
+
+            ;; TODO : "q" should switch to nop-code mode.
 
             (define-key map (kbd "<mouse-1>") #'nop-nav-toggle-node-visibility)
 

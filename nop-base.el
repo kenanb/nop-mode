@@ -494,6 +494,8 @@ Expansion specified in anchor overrides expansion specified in label.")
          (type-of directive)
          directive))
 
+;; NOTE : Lowercase characters reserved for user (or buffer) defined kind options.
+
 (defun nop--lex-option (option)
   (cl-case option
 
@@ -508,6 +510,7 @@ Expansion specified in anchor overrides expansion specified in label.")
     (?N '(kind . :note))
     (?T '(kind . :todo))
     (?K '(kind . :kludge))
+    (?W '(kind . :warning))
 
     (?U '(kind . :unit-test))
 
