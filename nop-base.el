@@ -363,7 +363,7 @@ The nesting level of the tree directive.")
    (kind
     :initarg :kind
     :initform :default
-    :type keyword
+    :type (or keyword list)
     :documentation "
 The role and semantics of directive.")
 
@@ -507,14 +507,16 @@ Expansion specified in anchor overrides expansion specified in label.")
     (?. '(kind . :continuation))
     (?> '(kind . :link))
 
-    (?N '(kind . :note))
+    (?A '(kind . :api))
+    (?H '(kind . :header/footer))
+
+    (?N '(kind . :info))
     (?T '(kind . :todo))
     (?K '(kind . :kludge))
     (?W '(kind . :warning))
 
     (?U '(kind . :unit-test))
 
-    (?H '(kind . :header))
     (?P '(kind . :preprocessor))
 
     (?D '(kind . :declaration))
@@ -530,7 +532,6 @@ Expansion specified in anchor overrides expansion specified in label.")
     (?{ '(kind . :scope-init))
     (?} '(kind . :scope-exit))
 
-    (?A '(kind . :assertion))
     (?L '(kind . :logging))
     (?E '(kind . :exception))
     (?V '(kind . :validation))
@@ -549,6 +550,10 @@ Expansion specified in anchor overrides expansion specified in label.")
          (tokens (cl-loop for i from (oref dspec-r begin) below (oref dspec-r end)
                           collect (nop--lex-option (char-after i))))
          (type (alist-get 'type tokens 'nop--tree-directive))
+         (kinds (cl-loop for token in tokens for v = (cdr token)
+                         when (eql 'kind (car token))
+                         if (member v '(:continuation :link)) return v else collect v into kinds end
+                         finally return kinds))
          (specified-depth (alist-get 'depth tokens))
          ;; If no depth or mod specified, copy.
          (mod (alist-get 'mod tokens (if specified-depth :abs :cpy)))
@@ -556,7 +561,7 @@ Expansion specified in anchor overrides expansion specified in label.")
           (apply #'make-instance type
                  :positions positions
                  (cl-case type
-                   (nop--tree-directive (list :kind (alist-get 'kind tokens :none)
+                   (nop--tree-directive (list :kind (or kinds '(:none))
                                               ;; If no depth specified, default to "modify-by-1".
                                               :depth (cons mod (or specified-depth 1))))
                    (t nil)))))

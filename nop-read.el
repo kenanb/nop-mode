@@ -191,6 +191,8 @@ information calculated based on the current DEFAULT face."
 ;;
 ;;
 
+(defvar-local nop--read-root-directives nil)
+
 (defun nop--nav-jump-to-directive (d)
   (goto-char (oref (nop--info-r (oref d positions)) begin)))
 
@@ -557,17 +559,24 @@ information calculated based on the current DEFAULT face."
   (list :none "Uncategorized"
         :continuation "-" ; Not represented as a primary directive.
         :link "-" ; Receives kind information from linked node.
-        :note "Developer Note"
+
+        :api "API"
+        :header/footer "Header / Footer"
+
+        :info "Info / Documentation"
         :todo "Todo Item"
         :kludge "Kludge"
         :warning "Warning"
+
         :unit-test "Unit Test"
-        :header "Header / Footer / Boilerplate"
+
         :preprocessor "Preprocessor Directives"
-        :declaration "Declarations / Variables / Aliases"
+
+        :declaration "Declarations / Variables"
         :function "Function Definitions"
         :macro "Macro Definitions"
         :class "Class Definitions"
+
         :block "Code Block"
         :iteration "Iteration"
         :recursion "Recursion"
@@ -575,11 +584,22 @@ information calculated based on the current DEFAULT face."
         :condition "Conditional Clause"
         :scope-init "Block Scope Init"
         :scope-exit "Block Scope Exit"
-        :assertion "Assertions"
+
         :logging "Logging"
         :exception "Exception / Error Handling"
         :validation "Validation / Postconditions"
         :guard-clause "Guard Clauses / Preconditions"))
+
+(defun nop--format-kind-string (kind &optional existing-string)
+  (cl-case kind
+    ;; These wouldn't be printed.
+    (:default (or existing-string ""))
+    (:merged (or existing-string ""))
+    ;; This should later be sourced from destination kinds.
+    (:link (or existing-string ""))
+    (t (if existing-string
+           (format "%s / %s" existing-string (plist-get nop--kind-descriptions kind))
+         (plist-get nop--kind-descriptions kind)))))
 
 (defun nop--recurse-for-subtree (recurse-fn d &rest args)
   (cl-loop for c in-ref (oref d children) do (apply recurse-fn c args))
@@ -634,7 +654,14 @@ information calculated based on the current DEFAULT face."
                (ellipsis (overlay-get handle 'ellipsis))
                (drawer (overlay-get handle 'drawer))
                (face (list (elt nop--shadow-faces depth)
-                           (elt nop--drawer-faces depth))))
+                           (elt nop--drawer-faces depth)))
+               (kind-description (format "[ %s ] (%s) \n"
+                                         (if (listp kind)
+                                             (cl-loop with str = nil for k in kind
+                                                      do (setf str (nop--format-kind-string k str))
+                                                      finally return str)
+                                           (nop--format-kind-string kind))
+                                         depth)))
 
           ;; Jump to the beginning of the directive that will be collapsed.
           (nop--nav-jump-to-directive d)
@@ -647,13 +674,12 @@ information calculated based on the current DEFAULT face."
 
           (overlay-put ellipsis 'after-string
                        (propertize " " 'face face
-                                   'display '(space :align-to (- right-margin 30))))
+                                   'display '(space :align-to (- right-margin 50))))
 
           ;; Hide drawer
           ;; A blank line is required to maintain correct margins on collapse.
           (overlay-put drawer 'display (propertize
-                                        (format "[ %s ] (%s) \n"
-                                                (plist-get nop--kind-descriptions kind) depth)
+                                        kind-description
                                         'face face))
 
           (store-substring (overlay-get title 'before-string) depth ?\N{U+25B6}))
@@ -681,6 +707,42 @@ information calculated based on the current DEFAULT face."
 (defun nop--apply-all-children (fn d)
   (nop--apply-immediate-children fn d)
   (cl-loop for c in (oref d continuations) do (nop--apply-immediate-children fn c)))
+
+(defun nop--nav-set-expansion (d depth)
+  (let ((absolute-depth (+ depth (oref d depth))))
+    (nop--call-for-each-node
+     (lambda (d depth-list)
+       (when (and (nop--tree-directive-p d)
+                  (not (eq (oref d kind) :merged)))
+         (if (< (oref d depth) absolute-depth)
+             (nop--nav-expand-node d)
+           (nop--nav-collapse-node d))))
+     d nil)))
+
+(defun nop--nav-set-expansions (directives depth)
+  (dolist (d directives) (nop--nav-set-expansion d depth)))
+
+(defun nop-nav-set-expansion-primary-0 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 0))
+(defun nop-nav-set-expansion-primary-1 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 1))
+(defun nop-nav-set-expansion-primary-2 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 2))
+(defun nop-nav-set-expansion-primary-3 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 3))
+(defun nop-nav-set-expansion-primary-4 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 4))
+(defun nop-nav-set-expansion-primary-5 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 5))
+(defun nop-nav-set-expansion-primary-6 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 6))
+(defun nop-nav-set-expansion-primary-7 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 7))
+(defun nop-nav-set-expansion-primary-8 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 8))
+(defun nop-nav-set-expansion-primary-9 () (interactive) (nop--nav-set-expansion (nop--cached-active t) 9))
+
+(defun nop-nav-set-expansion-0 () (interactive) (nop--nav-set-expansions nop--read-root-directives 0))
+(defun nop-nav-set-expansion-1 () (interactive) (nop--nav-set-expansions nop--read-root-directives 1))
+(defun nop-nav-set-expansion-2 () (interactive) (nop--nav-set-expansions nop--read-root-directives 2))
+(defun nop-nav-set-expansion-3 () (interactive) (nop--nav-set-expansions nop--read-root-directives 3))
+(defun nop-nav-set-expansion-4 () (interactive) (nop--nav-set-expansions nop--read-root-directives 4))
+(defun nop-nav-set-expansion-5 () (interactive) (nop--nav-set-expansions nop--read-root-directives 5))
+(defun nop-nav-set-expansion-6 () (interactive) (nop--nav-set-expansions nop--read-root-directives 6))
+(defun nop-nav-set-expansion-7 () (interactive) (nop--nav-set-expansions nop--read-root-directives 7))
+(defun nop-nav-set-expansion-8 () (interactive) (nop--nav-set-expansions nop--read-root-directives 8))
+(defun nop-nav-set-expansion-9 () (interactive) (nop--nav-set-expansions nop--read-root-directives 9))
 
 (defun nop-nav-expand-subtree-focused ()
   (interactive)
@@ -925,7 +987,9 @@ information calculated based on the current DEFAULT face."
       ;; In order to avoid special-casing the default everywhere, simply detach
       ;; the default title and handle overlays in the end.
       (delete-overlay (nop--get-arbitrary default :title))
-      (delete-overlay (nop--get-arbitrary default :handle))))
+      (delete-overlay (nop--get-arbitrary default :handle)))
+
+    (setf nop--read-root-directives merged))
 
   (setf nop--last-point (point))
   (let ((new-nodes (nop--get-nearest-visible-node-pair nop--last-point)))
@@ -951,6 +1015,8 @@ information calculated based on the current DEFAULT face."
   (setf nop--active-primary nil)
   (setf nop--active-focused nil)
   (setf nop--last-point nil)
+
+  (setf nop--read-root-directives nil)
 
   (nop--after-read-mode))
 
@@ -995,6 +1061,28 @@ information calculated based on the current DEFAULT face."
 
             (define-key map (kbd "<") #'nop-nav-buffer-begin)
             (define-key map (kbd ">") #'nop-nav-buffer-end)
+
+            (define-key map (kbd "C-0") #'nop-nav-set-expansion-0)
+            (define-key map (kbd "C-1") #'nop-nav-set-expansion-1)
+            (define-key map (kbd "C-2") #'nop-nav-set-expansion-2)
+            (define-key map (kbd "C-3") #'nop-nav-set-expansion-3)
+            (define-key map (kbd "C-4") #'nop-nav-set-expansion-4)
+            (define-key map (kbd "C-5") #'nop-nav-set-expansion-5)
+            (define-key map (kbd "C-6") #'nop-nav-set-expansion-6)
+            (define-key map (kbd "C-7") #'nop-nav-set-expansion-7)
+            (define-key map (kbd "C-8") #'nop-nav-set-expansion-8)
+            (define-key map (kbd "C-9") #'nop-nav-set-expansion-9)
+
+            (define-key map (kbd "0") #'nop-nav-set-expansion-primary-0)
+            (define-key map (kbd "1") #'nop-nav-set-expansion-primary-1)
+            (define-key map (kbd "2") #'nop-nav-set-expansion-primary-2)
+            (define-key map (kbd "3") #'nop-nav-set-expansion-primary-3)
+            (define-key map (kbd "4") #'nop-nav-set-expansion-primary-4)
+            (define-key map (kbd "5") #'nop-nav-set-expansion-primary-5)
+            (define-key map (kbd "6") #'nop-nav-set-expansion-primary-6)
+            (define-key map (kbd "7") #'nop-nav-set-expansion-primary-7)
+            (define-key map (kbd "8") #'nop-nav-set-expansion-primary-8)
+            (define-key map (kbd "9") #'nop-nav-set-expansion-primary-9)
 
             ;; TODO : "q" should switch to nop-code mode.
 
